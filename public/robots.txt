@@ -1,0 +1,12 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /.netlify/
+Disallow: /login
+Disallow: /join
+Disallow: /profile
+Disallow: /invitations
+Disallow: /invite/
+Disallow: /family
+Disallow: /capture
+Disallow: /share/

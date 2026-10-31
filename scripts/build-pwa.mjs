@@ -9,7 +9,7 @@ export async function buildPwa(directory) {
     for (const entry of await readdir(folder, { withFileTypes: true })) {
       const path = resolve(folder, entry.name)
       if (entry.isDirectory()) await walk(path)
-      else if ((/\.(?:html|js|css|png|svg|ico|webp|woff2?|webmanifest)$/.test(entry.name) || (entry.name.endsWith('.json') && relative(root, path).split(sep).join('/').startsWith('_nuxt/builds/'))) && entry.name !== 'sw.js') files.push(path)
+      else if ((entry.name === 'robots.txt' || /\.(?:html|js|css|png|svg|ico|webp|woff2?|webmanifest)$/.test(entry.name) || (entry.name.endsWith('.json') && relative(root, path).split(sep).join('/').startsWith('_nuxt/builds/'))) && entry.name !== 'sw.js') files.push(path)
     }
   }
   await walk(root)
@@ -36,7 +36,7 @@ self.addEventListener('fetch', event => {
   const request = event.request;
   const url = new URL(request.url);
   if(request.method !== 'GET' || url.origin !== self.location.origin || request.headers.has('authorization') || url.pathname.startsWith('/api/') || url.pathname.startsWith('/.netlify/')) return;
-  if(request.mode === 'navigate') {
+  if(request.mode === 'navigate' && !/\\.[^/]+$/.test(url.pathname)) {
     event.respondWith(caches.open(CACHE).then(cache => cache.match('/index.html')).then(response => response || fetch(request)));
   } else if(ASSETS.includes(url.pathname)) {
     event.respondWith(caches.open(CACHE).then(cache => cache.match(url.pathname)).then(response => response || fetch(request)));
