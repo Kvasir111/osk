@@ -23,6 +23,7 @@ beforeAll(async () => {
   await db.exec(await readFile(new URL('../../supabase/features.sql', import.meta.url), 'utf8'))
   await db.exec(await readFile(new URL('../../supabase/search-jobs.sql', import.meta.url), 'utf8'))
   await db.exec(await readFile(new URL('../../supabase/item-pictures.sql', import.meta.url), 'utf8'))
+  await db.exec(await readFile(new URL('../../supabase/account-invitations.sql', import.meta.url), 'utf8'))
   await db.exec(`insert into auth.users values ('${owner}'),('${editor}'),('${viewer}'),('${outsider}');
     insert into public.wish_lists(id,owner_id,name) values('${list}','${owner}','Christmas');
     insert into public.list_members values('${list}','${editor}','editor'),('${list}','${viewer}','viewer');
@@ -42,9 +43,46 @@ async function denied(sql: string) {
 }
 
 describe('Database isolation with real Postgres RLS', () => {
+  it('keeps account invitations and reservation functions inaccessible to browser roles', async () => {
+    for (const role of ['anon', 'authenticated']) {
+      await asUser(outsider, role)
+      await denied('select * from public.account_invitations')
+      await denied(`select public.reserve_account_invitation('${list}', 'test@example.com')`)
+      await denied(`select public.create_account_invitation('${outsider}','code',repeat('a',64),null)`)
+    }
+  })
+  it('binds one code to one email and limits delivery retries', async () => {
+    await asUser(owner, 'service_role')
+    const created = await db.query<{id:string}>(`select id from public.create_account_invitation('${owner}','code',repeat('a',64),null)`)
+    const id = created.rows[0]!.id
+    const reserve = (email: string) => db.query<{ok:boolean}>('select public.reserve_account_invitation($1,$2) as ok', [id,email])
+    expect((await reserve('one@example.com')).rows[0]!.ok).toBe(true)
+    expect((await reserve('two@example.com')).rows[0]!.ok).toBe(false)
+    expect((await reserve('one@example.com')).rows[0]!.ok).toBe(false)
+    await db.query("update account_invitations set last_attempt_at=now()-interval '2 minutes' where id=$1",[id])
+    expect((await reserve('one@example.com')).rows[0]!.ok).toBe(true)
+    await db.query("update account_invitations set delivery_attempts=5,last_attempt_at=now()-interval '2 minutes' where id=$1",[id])
+    expect((await reserve('one@example.com')).rows[0]!.ok).toBe(false)
+  })
+  it('blocks expired, revoked, and wrong-recipient email invitations', async () => {
+    await asUser(owner, 'service_role')
+    const created = await db.query<{id:string}>(`select id from public.create_account_invitation('${owner}','email',repeat('b',64),'one@example.com')`)
+    const id=created.rows[0]!.id
+    const reserve = (email:string) => db.query<{ok:boolean}>('select public.reserve_account_invitation($1,$2) as ok',[id,email])
+    expect((await reserve('two@example.com')).rows[0]!.ok).toBe(false)
+    await db.query("update account_invitations set expires_at=now()-interval '1 minute' where id=$1",[id])
+    expect((await reserve('one@example.com')).rows[0]!.ok).toBe(false)
+    await db.query("update account_invitations set expires_at=now()+interval '1 day',revoked_at=now() where id=$1",[id])
+    expect((await reserve('one@example.com')).rows[0]!.ok).toBe(false)
+  })
+  it('enforces the daily administrator invitation quota', async () => {
+    await asUser(owner, 'service_role')
+    for(let n=0;n<20;n++) await db.query('select public.create_account_invitation($1,$2,$3,null)',[owner,'code',n.toString(16).padStart(64,'0')])
+    await expect(db.query('select public.create_account_invitation($1,$2,$3,null)',[owner,'code','c'.repeat(64)])).rejects.toThrow('Invitation quota reached')
+  })
   it('enables RLS on every application table', async () => {
     const result = await db.query<{ relrowsecurity: boolean }>("select relrowsecurity from pg_class join pg_namespace n on n.oid=relnamespace where n.nspname='public' and relkind='r'")
-    expect(result.rows).toHaveLength(11)
+    expect(result.rows).toHaveLength(12)
     expect(result.rows.every(row => row.relrowsecurity)).toBe(true)
   })
   it('lets owners create with RETURNING, read, update, and delete their lists', async () => {

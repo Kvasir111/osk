@@ -20,6 +20,7 @@ export interface ProductDraft {
   notes: string
 }
 export interface WishItem extends ProductDraft {
+  pending_sync?: boolean
   id: string
   list_id: string
   created_at: string
@@ -29,6 +30,7 @@ export interface WishItem extends ProductDraft {
   price_check_details?: PriceCheckDetails
 }
 export interface WishList {
+  pending_sync?: boolean
   id: string
   owner_id: string
   name: string

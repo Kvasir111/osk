@@ -14,6 +14,22 @@
 .family-list-row > button { flex-shrink: 0; }
 .family-list-row .text-button { text-align: left; }
 .capture-page { max-width: 760px; }
+.offline-status { position: sticky; top: 0; z-index: 30; padding: 12px 22px; background: var(--osk-surface-soft); border-bottom: 1px solid var(--osk-border); color: var(--osk-text-strong); font-size: 12px; }
+.offline-status-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.offline-status-heading p { margin: 0; line-height: 1.7; }
+.offline-status .text-button { flex-shrink: 0; }
+.offline-status details { margin-top: 8px; }
+.offline-status summary { cursor: pointer; }
+.offline-status ul { margin: 10px 0 0; padding: 0; list-style: none; }
+.offline-status li { display: flex; justify-content: space-between; gap: 16px; padding: 8px 0; border-top: 1px solid var(--osk-border); }
+.offline-status li > div { min-width: 0; overflow-wrap: anywhere; }
+.invitations-page { max-width: 960px; }
+.invitations-page > .feature-panel, .invitations-page > .field-note { margin-top: 24px; }
+.invitation-methods { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.invitation-methods > *, .account-invitation-row > div { min-width: 0; }
+.account-invitation-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--osk-border); overflow-wrap: anywhere; }
+.account-invitation-row strong { font-size: 13px; font-weight: 500; }
+@media(max-width:700px) { .invitation-methods { grid-template-columns: 1fr; } .account-invitation-row { flex-direction: column; align-items: flex-start; } }
 .capture-page .feature-panel { margin-top: 20px; }
 .photo-add-heading { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 .photo-stub-badge { font-size: 11px; border: 1px solid var(--osk-border); border-radius: 20px; padding: 5px 10px; color: var(--osk-text-muted); }

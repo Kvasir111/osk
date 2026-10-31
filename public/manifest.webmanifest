@@ -1,0 +1,17 @@
+{
+  "id": "/",
+  "name": "Ósk · Wishes, kept simply",
+  "short_name": "Ósk",
+  "description": "Keep wishes from any store, share with your people, and add things offline.",
+  "lang": "en-US",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#f5f7f7",
+  "theme_color": "#283f47",
+  "icons": [
+    { "src": "/icons/osk-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/osk-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/icons/osk-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

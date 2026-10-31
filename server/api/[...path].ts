@@ -16,6 +16,8 @@ import { dispatchItemPicture } from '../utils/product-images'
 import { researchTasks } from '../utils/progressive-search'
 import { dispatchSearchJob, approveSearchItem } from '../utils/search-jobs'
 import { captureQuery } from '../../shared/capture'
+import { accountInvitationRequest, redeemAccountInvitation } from '../utils/account-invitations'
+import { createOfflineItem, createOfflineList } from '../utils/offline-create'
 
 const uuid = z.string().uuid()
 export default defineEventHandler(async event => {
@@ -25,6 +27,7 @@ export default defineEventHandler(async event => {
   const [resource, id, action] = path
   const method = event.method
   try {
+    if (resource === 'account-invitations' && id === 'redeem' && path.length === 2 && method === 'POST') return await redeemAccountInvitation(event)
     if (resource === 'share' && method === 'GET' && (path.length === 2 || (path.length === 4 && action === 'history'))) {
       uuid.parse(id)
       const admin = adminDatabase()
@@ -40,6 +43,7 @@ export default defineEventHandler(async event => {
       return { list, items }
     }
     const { db, user } = await requireUser(event)
+    if (resource === 'account-invitations') return await accountInvitationRequest(event, path, user)
     if (resource === 'families' || resource === 'family-join') return await familyRequest(event, path, db, user)
     if (resource === 'profile' && path.length === 1) {
       const admin = adminDatabase()
@@ -98,7 +102,10 @@ export default defineEventHandler(async event => {
         const memberships = dbResult(await db.from('list_members').select('list_id,role').eq('user_id', user.id))
         return { lists, memberships, user_id: user.id }
       }
-      if (method === 'POST') return dbResult(await db.from('wish_lists').insert({ ...listSchema.parse(await readBody(event)), owner_id: user.id }).select().single())
+      if (method === 'POST') {
+        const { client_id, ...input } = listSchema.extend({ client_id: uuid.optional() }).parse(await readBody(event))
+        return client_id ? createOfflineList(db, client_id, user.id, input) : dbResult(await db.from('wish_lists').insert({ ...input, owner_id: user.id }).select().single())
+      }
     }
     if (resource === 'lists' && id) {
       uuid.parse(id)
@@ -113,7 +120,13 @@ export default defineEventHandler(async event => {
       }
       if (action === 'items' && method === 'GET') return dbResult(await db.from('wish_items').select('*').eq('list_id', id).order('created_at', { ascending: false }))
       if (action === 'items' && method === 'POST') {
-        const body = z.object({ product: productSchema, checked_at: z.string().datetime().nullable().default(null), price_check_details: priceCheckSchema.optional(), search_id: uuid.optional() }).parse(await readBody(event))
+        const body = z.object({ product: productSchema, client_id: uuid.optional(), checked_at: z.string().datetime().nullable().default(null), price_check_details: priceCheckSchema.optional(), search_id: uuid.optional() }).parse(await readBody(event))
+        if (body.client_id) {
+          if (body.search_id || body.checked_at) throw createError({ statusCode: 400, statusMessage: 'Offline additions must be unverified manual wishes.' })
+          const item = await createOfflineItem(db, body.client_id, id, normalizePicture(body.product))
+          if (item) await dispatchItemPicture(adminDatabase(), item.id).catch(() => {})
+          return item
+        }
         const item = dbResult(await writeItem(db,{ ...normalizePicture(body.product), list_id: id,
           checked_at: body.checked_at, last_attempt_at: body.checked_at,
           price_check_details: body.price_check_details || {},

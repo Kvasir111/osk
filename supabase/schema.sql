@@ -1,6 +1,6 @@
 -- Bootstrap a NEW, dedicated Supabase project with this file in SQL Editor.
 -- This is the initial schema, not an applied migration.
--- Then run features.sql, search-jobs.sql, and item-pictures.sql for the full application.
+-- Then run features.sql, search-jobs.sql, item-pictures.sql, and account-invitations.sql.
 begin;
 create schema if not exists private;
 revoke all on schema private from public, anon, authenticated;

@@ -3,6 +3,7 @@ import type { WishItem } from '../../shared/types'
 import { artworkFor } from '../../shared/product-images'
 import { retailerCount } from '../../shared/retailers'
 import { bestOffer, money, savings } from '../../shared/pricing'
+const online = useState('offline-online', () => true)
 const props = defineProps<{ item: WishItem; editable?: boolean; demo?: boolean; refreshing?: boolean }>()
 defineEmits<{ open: [item: WishItem]; refresh: [id: string] }>()
 const best = computed(() => bestOffer(props.item.offers))
@@ -23,9 +24,10 @@ const checked = computed(() => props.item.checked_at ? new Date(props.item.check
       <button class="product-title" @click="$emit('open', item)">{{ item.name }}</button>
       <p class="product-variant">{{ item.variant || 'Details make the difference.' }}</p>
       <div class="price-row"><strong>{{ best ? money(best.price_cents) : 'Price unknown' }}</strong><span v-if="discount" class="old-price">{{ money(item.msrp_cents!) }}</span><span v-if="discount" class="saved-price">Save {{ money(discount.cents) }}</span></div>
-      <p v-if="!demo" class="coverage-caption">{{ retailerCount(item) }} priced retailers · {{ retailerCount(item) < 2 ? 'incomplete comparison' : 'comparison target met' }}</p>
+      <p v-if="item.pending_sync" class="coverage-caption">Saved on this device · waiting to sync</p>
+      <p v-else-if="!demo" class="coverage-caption">{{ retailerCount(item) }} priced retailers · {{ retailerCount(item) < 2 ? 'incomplete comparison' : 'comparison target met' }}</p>
       <div class="card-bottom"><span :class="{ 'text-amber-700': item.refresh_status === 'failed' }"><WishIcon :name="item.refresh_status === 'failed' ? 'clock' : 'refresh'" :size="12" />{{ demo ? 'Sample prices' : item.refresh_status === 'failed' ? 'Refresh failed · previous price' : checked ? `Checked ${checked}` : 'Not checked yet' }}</span>
-        <button v-if="editable && !demo" class="icon-button small" :disabled="refreshing" :aria-label="`Refresh price for ${item.name}`" @click="$emit('refresh', item.id)"><WishIcon name="refresh" :size="14" :class="{ spinning: refreshing }" /></button>
+        <button v-if="editable && !demo" class="icon-button small" :disabled="refreshing || item.pending_sync || !online" :aria-label="`Refresh price for ${item.name}`" @click="$emit('refresh', item.id)"><WishIcon name="refresh" :size="14" :class="{ spinning: refreshing }" /></button>
         <WishIcon v-else name="arrow" :size="15" />
       </div>
     </div>

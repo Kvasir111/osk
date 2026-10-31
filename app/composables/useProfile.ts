@@ -14,6 +14,8 @@ export function useProfile() {
         const saved = JSON.parse(localStorage.getItem('osk-demo-profile-v1') || 'null')
         profile.value = saved && typeof saved.display_name === 'string' ? saved : { display_name: '', avatar_url: null, email: '' }
       } catch { profile.value = { display_name: '', avatar_url: null, email: '' } }
+    } else if (!navigator.onLine) {
+      profile.value = { display_name: user.value?.user_metadata?.display_name || '', avatar_url: null, email: user.value?.email || '' }
     } else profile.value = await api<Profile>('/api/profile')
     loadedAt.value = Date.now()
   }

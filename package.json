@@ -8,13 +8,14 @@
   },
   "scripts": {
     "dev": "nuxt dev",
-    "build": "nuxt build",
+    "build": "nuxt build && node scripts/build-pwa.mjs",
     "preview": "nuxt preview",
     "postinstall": "nuxt prepare",
     "typecheck": "nuxt typecheck",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "setup:profiles": "node --env-file-if-exists=.env scripts/setup-profile-storage.mjs"
+    "setup:profiles": "node --env-file-if-exists=.env scripts/setup-profile-storage.mjs",
+    "test:pwa": "playwright test --config playwright.pwa.config.ts"
   },
   "dependencies": {
     "@supabase/supabase-js": "2.118.0",

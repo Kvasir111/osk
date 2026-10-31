@@ -1,1 +1,1 @@
-<template><ThemeToggle class="theme-toggle-global" /><NuxtPage /><ResearchActivity /></template>
+<template><ThemeToggle class="theme-toggle-global" /><OfflineStatus /><NuxtPage /><ResearchActivity /></template>

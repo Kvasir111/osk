@@ -29,12 +29,12 @@ Without Supabase configuration, the app runs an explicitly labeled local demo. S
 ## Connect the new Supabase project
 
 1. Use a **dedicated project**, separate from the drinks app.
-2. Run [`supabase/schema.sql`](supabase/schema.sql), then [`supabase/features.sql`](supabase/features.sql), then [`supabase/search-jobs.sql`](supabase/search-jobs.sql) and [`supabase/item-pictures.sql`](supabase/item-pictures.sql), each **once**, in its SQL Editor. Together they create the tables, RLS policies, grants, and service-only budget/lease functions. It is not a migration that has already been applied. Keep future changes in reviewed migrations; do not rerun the bootstrap on existing tables.
+2. Run [`supabase/schema.sql`](supabase/schema.sql), then [`supabase/features.sql`](supabase/features.sql), then [`supabase/search-jobs.sql`](supabase/search-jobs.sql), [`supabase/item-pictures.sql`](supabase/item-pictures.sql), and [`supabase/account-invitations.sql`](supabase/account-invitations.sql), each **once**, in its SQL Editor. Together they create the tables, RLS policies, grants, and service-only budget/lease functions. It is not a migration that has already been applied. Keep future changes in reviewed migrations; do not rerun the bootstrap on existing tables.
 3. In the project's Connect/API settings, get the project URL and publishable key. Put them in `.env` as `NUXT_PUBLIC_SUPABASE_URL` and `NUXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
 4. Add the **server-only** service-role key as `SUPABASE_SERVICE_ROLE_KEY`. It supports token-based shared views, account invitations, and daily workers. It never goes into public runtime config.
 5. Configure Supabase Auth:
    - Set Site URL to the deployed origin; add the appropriate local and deployed `/login` redirect URLs, including the `/login?next=...` path needed for collaboration invitations. For local development, allow `http://localhost:3000/**` and the loopback URL if used. Use the deployed origin's `/**` pattern for query-bearing callbacks.
-   - Disable public signups and anonymous sign-ins. Invite your own account and family accounts through **Authentication → Users**. The app's sign-in uses `shouldCreateUser: false`.
+   - Disable public signups and anonymous sign-ins. Bootstrap your own account through **Authentication → Users**. Then use the app’s **Invite people** page for family accounts. The app's sign-in uses `shouldCreateUser: false`.
    - Configure custom SMTP before inviting family members. Supabase's default sender only delivers to organization team addresses and is intended for testing, not family email delivery. [Supabase SMTP documentation](https://supabase.com/docs/guides/auth/auth-smtp).
 
 Restart the dev server after changing public environment values. The app verifies bearer tokens with `auth.getUser()` on every authenticated API request. Since this is a client-rendered Nuxt app (`ssr: false`), browser sessions use the standard Supabase client; there are no server-rendered session cookies to manage.
@@ -82,6 +82,7 @@ Add these environment variables in Netlify, available at build time **and to Fun
 | `NUXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Publishable key; public |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only database access |
 | `OPENAI_API_KEY` | Server-only OpenAI key |
+| `INVITATION_ADMIN_EMAILS` | Server-only, comma-separated verified email addresses allowed to create account invitations |
 | `OPENAI_MODEL` | Optional; defaults to `gpt-5.5` |
 | `OPENAI_SEARCH_MODEL` | Optional override for interactive background research |
 | `OPENAI_EXTRACTION_MODEL` | Optional formatter for legacy/daily synchronous checks |
@@ -148,3 +149,34 @@ Product pictures appear on cards, in search previews, and in item details (inclu
 Automatic pictures come from known product pages’ Open Graph metadata, matching Product JSON-LD, or the selected Amazon landing image; image URLs are not guessed by a model. Lookup runs beside retailer research and does not delay the first approvable product. Manual saves use a protected `product-image-background` Netlify function; local development uses the persistent Nuxt process. Daily successful checks also fill missing pictures. Lookups share a 5.5-second budget, follow at most two HTTPS redirects, cap HTML at 2 MiB, validate and pin public DNS answers on every hop, and never forward account cookies or credentials. Blocked stores simply leave the fallback in place. The app stores source URLs rather than rehosting retailers’ images.
 
 In **Edit item**, choose automatic lookup, supply a custom public HTTPS photo URL, or choose category artwork only. Custom/category-only choices survive price refreshes and background research. Changing an automatically pictured product name or variant clears its old image for a fresh lookup. The automatic option also lets you clear an existing picture and request another lookup when saving. SVG and executable/data/local image URLs are not accepted as custom photos. No additional OpenAI calls are made for pictures.
+
+## Account invitations
+
+Run `supabase/account-invitations.sql` once in the Supabase SQL Editor. Add `INVITATION_ADMIN_EMAILS` to the server environment in Netlify and locally; include your verified sign-in email. No administrator is enabled by default, and user-editable profile metadata never grants this permission. Redeploy after changing server configuration.
+
+Open **Invite people** to send an email invitation or generate a code/link. Codes carry 120 bits of randomness, are stored only as SHA-256 hashes, expire in seven days, and bind atomically to the first email that uses them. The full code is displayed once. Share links put the code in a fragment, which the join page removes from browser history. Recipients can also enter a code at `/join`; the login page links there.
+
+New accounts are created using Supabase’s server-only invitation API. Existing accounts receive an ordinary magic link with automatic signup disabled. Both return to `/login?next=%2Fprofile` on the configured Netlify `URL`, so the production origin and its login callback must be allowed in Supabase. Public signup can remain disabled. Configure custom SMTP to deliver to friends and family; Supabase’s default sender is restricted to project-team addresses.
+
+Each configured administrator may create 20 invitations per rolling 24 hours. Each invitation allows five email delivery attempts at least 60 seconds apart, including failed attempts; retrying a code uses the same email. Administrators can see, resend, and revoke their own invitations. Revocation blocks further claims and resends but does not delete accounts or invalidate authentication emails already sent. Account invitations grant no family or wishlist permissions; those remain separate sharing actions.
+
+## PWA and offline additions
+
+Deploy over HTTPS, open Ósk online once, and let your lists load. **Install Ósk** in the sidebar opens the browser installation prompt when available, or gives iPhone/iPad and browser-menu instructions. The manifest includes standalone display and standard, maskable, and Apple icons. Service workers are enabled in production builds; the development server stays network-only.
+
+Previously loaded lists, wishes, and prices are saved in IndexedDB for the signed-in account. Offline, you can browse those lists and add manual wishes or create new lists. The status bar identifies cached data and unsynced additions. Product pictures use the category fallback when their external hosts are unavailable. Existing-item edits/deletes, research, profile changes, sharing, invitations, and fresh price checks require a connection. The photo-capture stub remains a temporary local reference, without photo upload.
+
+Additions are written durably before submitting. Sync runs when the app reconnects, regains focus, or is next opened online, and retries pending additions every 30 seconds while open. New lists sync before their wishes. Stable client UUIDs make retries idempotent without another database upgrade, and server RLS rechecks current access. A lost response cannot create a second copy or overwrite the original. An older in-flight refresh cannot hide a newer local save. Failed permission or validation checks retain the draft for review/removal; Retry sync retries blocked additions too. Authentication failures keep the queue until that same account signs in again. This does not depend on browser-specific closed-app background sync.
+
+Snapshots and queues are scoped to account IDs; credentials are not copied into IndexedDB or worker caches. The usual Supabase browser session remains in its SDK-managed storage. Switching accounts does not display or submit another account’s additions. Explicit sign-out removes that account’s offline data and asks for confirmation if it has unsynced additions. Browser/device storage must remain available until synchronization finishes.
+
+`pnpm run build` prerenders a public app shell and runs `scripts/build-pwa.mjs` to precache this build’s public scripts, styles, icons, and routing metadata. The worker never caches API responses, authorization-bearing requests, or third-party content. New worker versions wait until existing app windows close, then clean up older shell caches. No automatic reload interrupts an open form.
+
+To run the production-worker tests in an isolated checkout, build with the test-only public configuration and then run `pnpm test:pwa`:
+
+```sh
+NUXT_PUBLIC_SUPABASE_URL=https://qa.supabase.co NUXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=sb_publishable_test_only pnpm build
+pnpm test:pwa
+```
+
+The tests use a local static server and mocked APIs, with real browser service workers and IndexedDB. They cover offline reloads, new-list dependencies, dropped-response retries, stale-refresh races, revoked access, expired offline sessions, account isolation, fresh prices on reconnect, and sign-out cleanup.

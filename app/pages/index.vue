@@ -54,7 +54,7 @@ function saveList() { run(async () => {
 }) }
 function saveItem(product: ProductDraft, checkedAt: string | null = null, details?: PriceCheckDetails, searchId?: string) { run(async () => {
   await store.saveItem(product, checkedAt, modal.value === 'edit-item' ? selected.value?.id : undefined, details, searchId)
-  modal.value = null; notify('A good wish, saved.')
+  modal.value = null; notify(store.pending.value.length ? 'Saved on this device. Waiting to sync.' : 'A good wish, saved.')
 }) }
 function openItem(item: WishItem) { selected.value = item; modal.value = 'detail' }
 async function refresh(id: string) {
@@ -83,7 +83,9 @@ const occasionIcon = (occasion: string) => occasion === 'everyday' ? 'heart' : '
       <nav aria-label="Wishlists"><button v-for="list in lists" :key="list.id" class="list-nav" :class="{ active: activeId === list.id }" @click="activeId = list.id"><WishIcon :name="occasionIcon(list.occasion)" :size="18" /><span>{{ list.name }}</span><span class="list-count">{{ items.filter(i => i.list_id === list.id).length }}</span></button></nav>
       <button class="new-list-button" @click="openList()"><WishIcon name="plus" :size="17" />Make a new list</button>
       <NuxtLink to="/family" class="new-list-button"><WishIcon name="user" :size="17" />Family hub</NuxtLink>
+      <NuxtLink to="/invitations" class="new-list-button"><WishIcon name="plus" :size="17" />Invite people</NuxtLink>
       <NuxtLink to="/capture" class="new-list-button"><WishIcon name="link" :size="17" />Quick capture</NuxtLink>
+      <PwaInstall />
       <div class="sidebar-bottom"><div class="little-note"><WishIcon name="gift" :size="25" /><p>Buy with intention.<br /><strong>Give with thought.</strong></p></div>
         <div class="account-row"><NuxtLink to="/profile" class="account-profile-link" aria-label="Edit your profile"><UserAvatar :name="displayName" :src="avatarUrl" /><div><strong>{{ displayName }}</strong><span>Edit profile{{ demo ? ' · demo' : '' }}</span></div></NuxtLink><button v-if="!demo" class="icon-button" aria-label="Sign out" @click="signOut"><WishIcon name="logout" :size="17" /></button><WishIcon v-else name="heart" :size="16" /></div>
       </div>
