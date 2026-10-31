@@ -9,6 +9,7 @@ import { AVATAR_BUCKET, profileSchema, ownedAvatarPath } from '../../shared/prof
 import { prepareAvatar, profileForUser } from '../utils/profiles'
 
 import { familyRequest } from '../utils/families'
+import { santaRequest } from '../utils/santa'
 import { itemHistory } from '../utils/history'
 import { writeItem } from '../utils/item-write'
 import { normalizePicture } from '../../shared/product-images'
@@ -43,6 +44,7 @@ export default defineEventHandler(async event => {
       return { list, items }
     }
     const { db, user } = await requireUser(event)
+    if (resource === 'santa') return await santaRequest(event, path, db, user)
     if (resource === 'account-invitations') return await accountInvitationRequest(event, path, user)
     if (resource === 'families' || resource === 'family-join') return await familyRequest(event, path, db, user)
     if (resource === 'profile' && path.length === 1) {

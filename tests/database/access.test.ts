@@ -24,6 +24,7 @@ beforeAll(async () => {
   await db.exec(await readFile(new URL('../../supabase/search-jobs.sql', import.meta.url), 'utf8'))
   await db.exec(await readFile(new URL('../../supabase/item-pictures.sql', import.meta.url), 'utf8'))
   await db.exec(await readFile(new URL('../../supabase/account-invitations.sql', import.meta.url), 'utf8'))
+  await db.exec(await readFile(new URL('../../supabase/secret-santa.sql', import.meta.url), 'utf8'))
   await db.exec(`insert into auth.users values ('${owner}'),('${editor}'),('${viewer}'),('${outsider}');
     insert into public.wish_lists(id,owner_id,name) values('${list}','${owner}','Christmas');
     insert into public.list_members values('${list}','${editor}','editor'),('${list}','${viewer}','viewer');
@@ -82,7 +83,7 @@ describe('Database isolation with real Postgres RLS', () => {
   })
   it('enables RLS on every application table', async () => {
     const result = await db.query<{ relrowsecurity: boolean }>("select relrowsecurity from pg_class join pg_namespace n on n.oid=relnamespace where n.nspname='public' and relkind='r'")
-    expect(result.rows).toHaveLength(12)
+    expect(result.rows).toHaveLength(15)
     expect(result.rows.every(row => row.relrowsecurity)).toBe(true)
   })
   it('lets owners create with RETURNING, read, update, and delete their lists', async () => {
@@ -255,5 +256,87 @@ describe('Product pictures follow item permissions',()=>{
     expect((await db.query(`update wish_items set image_url='https://other.example.com/item.jpg' where id='${item}' returning id`)).rows).toHaveLength(0)
     await asUser(outsider)
     expect((await db.query(`update wish_items set image_mode='none',image_url=null where id='${item}' returning id`)).rows).toHaveLength(0)
+  })
+})
+
+const santaFamily = '50000000-0000-4000-8000-000000000001'
+async function santaSetup(exclusions: string[][] = []) {
+  await db.exec(`insert into families(id,owner_id,name) values('${santaFamily}','${owner}','Santa family');
+    insert into family_members values('${santaFamily}','${editor}'),('${santaFamily}','${viewer}');`)
+  await asUser(owner, 'service_role')
+  const result = await db.query<{ id: string }>('select public.mutate_santa($1,$2,$3,$4) as id', [owner, santaFamily, 'create', JSON.stringify({ name: 'Christmas', budget_cents: 5000, exclusions })])
+  const id = result.rows[0]!.id
+  for (const person of [owner, editor, viewer]) await santaMutation(person, id, 'join')
+  return id
+}
+function santaMutation(actor: string, id: string, operation: string, input: unknown = {}) {
+  return db.query('select public.mutate_santa($1,$2,$3,$4)', [actor, id, operation, JSON.stringify(input)])
+}
+const validDraw = { assignments: [{ giver_id: owner, recipient_id: editor }, { giver_id: editor, recipient_id: viewer }, { giver_id: viewer, recipient_id: owner }] }
+async function failsMutation(actor: string, id: string, operation: string, input: unknown = {}) {
+  await db.exec('savepoint santa_failure')
+  await expect(santaMutation(actor, id, operation, input)).rejects.toThrow()
+  await db.exec('rollback to savepoint santa_failure; release savepoint santa_failure')
+}
+describe('Secret Santa privacy and transactional writes', () => {
+  it('shows only the caller’s recipient, including for organizers, and hides everything from outsiders', async () => {
+    const id = await santaSetup()
+    await santaMutation(owner, id, 'draw', validDraw)
+    for (const [person, recipient] of [[owner, editor], [editor, viewer], [viewer, owner]]) {
+      await asUser(person!)
+      expect((await db.query('select recipient_id from santa_assignments')).rows).toEqual([{ recipient_id: recipient }])
+      expect((await db.query('select * from santa_participants')).rows).toHaveLength(3)
+    }
+    await asUser(outsider)
+    for (const table of ['santa_events', 'santa_participants', 'santa_assignments']) expect((await db.query(`select * from ${table}`)).rows).toHaveLength(0)
+    await asUser('', 'anon')
+    await denied('select * from santa_assignments')
+  })
+  it('keeps writes and the privileged RPC inaccessible to browser roles', async () => {
+    const id = await santaSetup()
+    await asUser(owner)
+    await denied(`delete from santa_events where id='${id}'`)
+    await denied(`insert into santa_participants values('${id}','${outsider}')`)
+    await denied(`update santa_assignments set recipient_id='${outsider}'`)
+    await denied(`select public.mutate_santa('${owner}','${id}','draw','{}')`)
+  })
+  it('checks the verified actor and locks roster and settings after drawing', async () => {
+    const id = await santaSetup()
+    await failsMutation(outsider, id, 'join')
+    await failsMutation(editor, id, 'draw', validDraw)
+    await failsMutation(editor, id, 'update', { name: 'Hijacked' })
+    await santaMutation(owner, id, 'draw', validDraw)
+    for (const action of ['draw', 'leave', 'join', 'update']) await failsMutation(owner, id, action, validDraw)
+    expect((await db.query('select * from santa_assignments')).rows).toHaveLength(3)
+  })
+  it('rejects invalid, duplicate, incomplete, and excluded draws atomically', async () => {
+    const id = await santaSetup([[owner, editor]])
+    await failsMutation(owner, id, 'draw', validDraw)
+    await failsMutation(owner, id, 'draw', { assignments: validDraw.assignments.slice(1) })
+    await failsMutation(owner, id, 'draw', { assignments: [validDraw.assignments[0], validDraw.assignments[0], validDraw.assignments[2]] })
+    await failsMutation(owner, id, 'draw', { assignments: validDraw.assignments.map(row => ({ ...row, recipient_id: row.giver_id })) })
+    expect((await db.query('select * from santa_assignments')).rows).toHaveLength(0)
+    expect((await db.query('select drawn_at from santa_events')).rows).toEqual([{ drawn_at: null }])
+  })
+  it('rejects stale rosters and revokes assignment reads when a member leaves the family', async () => {
+    const id = await santaSetup()
+    await db.exec(`delete from family_members where user_id='${editor}'`)
+    await failsMutation(owner, id, 'draw', validDraw)
+    await db.exec(`insert into family_members values('${santaFamily}','${editor}')`)
+    await santaMutation(owner, id, 'draw', validDraw)
+    await db.exec(`delete from family_members where user_id='${editor}'`)
+    await asUser(editor)
+    expect((await db.query('select * from santa_assignments')).rows).toHaveLength(0)
+    expect((await db.query('select * from santa_events')).rows).toHaveLength(0)
+  })
+  it('leaving an open event removes only that participant and deleting a family cascades', async () => {
+    const id = await santaSetup()
+    await santaMutation(editor, id, 'leave')
+    expect((await db.query('select user_id from santa_participants order by user_id')).rows).toEqual([{ user_id: owner }, { user_id: viewer }])
+    await santaMutation(editor, id, 'join')
+    await santaMutation(owner, id, 'draw', validDraw)
+    await db.exec(`delete from families where id='${santaFamily}'`)
+    expect((await db.query('select * from santa_events')).rows).toHaveLength(0)
+    expect((await db.query('select * from santa_assignments')).rows).toHaveLength(0)
   })
 })

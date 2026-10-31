@@ -30,6 +30,8 @@
 - Price history records actual observations. Failed checks retain previous offers; manual offers do not become verified sale history. Image-only changes must not create price observations.
 - Preserve category artwork as the fallback for missing or failed product photos. Use the existing hardened metadata/image fetcher with public-address checks and bounded redirects, response sizes, and timeouts.
 - Photo Quick Add is currently a stub: the selected photo is a temporary local reference, not uploaded, persisted, or recognized. Users enter details and choose lists.
+- Secret Santa lives in family hubs: members opt in, only organizers configure/draw, exclusions apply both ways, and draws lock. Assignment reads must expose only the caller’s recipient, including for organizers; events grant no new wishlist access.
+- The PWA share target routes URL/text/title to `/capture` for review. Receiving a share must never start research or save automatically. Preserve the login return path, offline manual capture, and copy-link fallback for unsupported browsers.
 - Reuse theme tokens and accessible controls. Check actual mobile viewports, both themes, keyboard navigation, and readable contrast. Keep the document language and static `robots.txt` valid.
 
 ## Authentication and data access
@@ -49,6 +51,7 @@
 - Preserve RLS, least-privilege grants, and the non-exposed `private` helper schema with empty function search paths. Add meaningful permission coverage when changing access rules.
 - Fresh-project setup order is `schema.sql`, `features.sql`, `search-jobs.sql`, `item-pictures.sql`, then `account-invitations.sql`, each once. Do not rerun bootstrap SQL against an existing project.
 - Put subsequent changes in reviewed additive SQL. Editing a SQL file does not apply it to the live project, and a service-role API key cannot apply DDL. Report schema application separately from local validation.
+- `supabase/secret-santa.sql` is the additive event upgrade after the initial setup. Keep event writes transactional through the service-only RPC, with verified caller IDs and current membership checks; browser roles receive scoped reads only.
 
 ## Offline and PWA behavior
 

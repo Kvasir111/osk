@@ -14,6 +14,9 @@
 .family-list-row > button { flex-shrink: 0; }
 .family-list-row .text-button { text-align: left; }
 .capture-page { max-width: 760px; }
+.santa-exclusion { display: flex; align-items: center; justify-content: space-between; gap: 12px; overflow-wrap: anywhere; }
+[aria-label="Secret Santa"] { overflow-wrap: anywhere; }
+[aria-label="Secret Santa"] .photo-list-choices label { flex-direction: column; align-items: stretch; }
 .offline-status { position: sticky; top: 0; z-index: 30; padding: 12px 22px; background: var(--osk-surface-soft); border-bottom: 1px solid var(--osk-border); color: var(--osk-text-strong); font-size: 12px; }
 .offline-status-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .offline-status-heading p { margin: 0; line-height: 1.7; }

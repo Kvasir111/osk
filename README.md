@@ -29,7 +29,7 @@ Without Supabase configuration, the app runs an explicitly labeled local demo. S
 ## Connect the new Supabase project
 
 1. Use a **dedicated project**, separate from the drinks app.
-2. Run [`supabase/schema.sql`](supabase/schema.sql), then [`supabase/features.sql`](supabase/features.sql), then [`supabase/search-jobs.sql`](supabase/search-jobs.sql), [`supabase/item-pictures.sql`](supabase/item-pictures.sql), and [`supabase/account-invitations.sql`](supabase/account-invitations.sql), each **once**, in its SQL Editor. Together they create the tables, RLS policies, grants, and service-only budget/lease functions. It is not a migration that has already been applied. Keep future changes in reviewed migrations; do not rerun the bootstrap on existing tables.
+2. Run [`supabase/schema.sql`](supabase/schema.sql), then [`supabase/features.sql`](supabase/features.sql), [`supabase/search-jobs.sql`](supabase/search-jobs.sql), [`supabase/item-pictures.sql`](supabase/item-pictures.sql), [`supabase/account-invitations.sql`](supabase/account-invitations.sql), and [`supabase/secret-santa.sql`](supabase/secret-santa.sql), each **once**, in its SQL Editor. Together they create the tables, RLS policies, grants, and service-only transaction/budget/lease functions. These files are setup SQL, not proof of a live migration. Keep future changes in reviewed migrations; do not rerun the bootstrap on existing tables.
 3. In the project's Connect/API settings, get the project URL and publishable key. Put them in `.env` as `NUXT_PUBLIC_SUPABASE_URL` and `NUXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
 4. Add the **server-only** service-role key as `SUPABASE_SERVICE_ROLE_KEY`. It supports token-based shared views, account invitations, and daily workers. It never goes into public runtime config.
 5. Configure Supabase Auth:
@@ -124,8 +124,9 @@ These checks do **not** replace verification against your hosted Supabase projec
 - `supabase/schema.sql`: initial database bootstrap.
 - `supabase/features.sql`: additive price history and family sharing.
 - `supabase/search-jobs.sql`: additive private research jobs.
+- `supabase/secret-santa.sql`: additive family events, opt-in participants, and private assignments.
 
-Secret Santa name drawing, gift reservations, target-price alerts, checkout, and notification delivery are outside this version's scope.
+Gift reservations, target-price alerts, checkout, and notification delivery are outside this version's scope.
 
 
 ## Price history, family hub, and quick capture
@@ -135,7 +136,25 @@ For an existing project, run `supabase/features.sql` **once** in the Supabase SQ
 - **Price history:** open an item for a chart of the best price or one retailer, individual source links, lowest observed price, and typical best-price context. Successful price checks save offers and history in the same transaction through a private trigger. Failed checks preserve previous offers without inventing new observations. Name/variant changes are compared separately. Manual entries remain visible in the records but are excluded from sale context. Charts and history return up to one year / 2,000 latest records. The typical price is the median of prior daily minima over 30 days, requiring at least three distinct prior days. MSRP is separate, and changing retailer coverage can affect the best available price.
 - **Family hub** (`/family`): create a private family, invite approved Ósk accounts with seven-day links, revoke outstanding invites, and share specific lists. Group membership adds view-only access; it does not grant editing rights. Organizers can rename/delete the hub and remove members; members can leave. Removing membership revokes family access immediately and removes that person’s family shares. Existing individual list permissions and public sharing links remain independent. Profiles in the hub show names/pictures without exposing email addresses.
 - **Price-check status:** cards show retailer coverage; item details show successful-check time, last attempt, stale prices, incomplete comparisons, failed checks, and retailer listings without verified prices. Refreshes revisit known priced and unpriced listing URLs and retain unverified links after partial results. Saved diagnostics begin with new searches/checks; older items do not acquire invented research details.
-- **Quick capture** (`/capture`): paste a public HTTPS product URL, choose an editable list, preview the exact item and cross-store prices, then explicitly approve it. A manual fallback preserves the source URL and asks for the missing details. Links pasted into dashboard search also use capture mode. `/capture?url=<encoded product URL>` and shared text in `?text=` can prefill the capture form. This is URL-based capture; no browser extension or native mobile share-sheet installation is required.
+- **Quick capture** (`/capture`): paste a public HTTPS product URL, choose an editable list, preview the exact item and cross-store prices, then explicitly approve it. A manual fallback preserves the source URL and asks for the missing details. Links pasted into dashboard search also use capture mode. Shared URL, text, and title parameters can prefill the capture form; receiving a share never starts paid research or saves an item automatically.
+
+## Secret Santa
+
+Run `supabase/secret-santa.sql` once on the existing project, after `features.sql`. This additive upgrade creates event, opt-in participant, and private assignment tables without changing wishlist access. On a fresh project, apply it after the other setup SQL files. No new environment variables are needed.
+
+Open **Family hub**, choose a family, and use **Secret Santa**. The family organizer creates an event with an optional USD gift budget, exchange date, and excluded pairs such as partners. Exclusions apply in both directions and are visible to the family. Invite people using the existing family invitation flow; each member joins the event for themselves. Events support 3–50 participants.
+
+Save settings before choosing **Draw names**. The server uses randomized matching, checks the complete draw against the current roster and exclusions, and commits all assignments atomically. Impossible constraints leave the event open so the organizer can adjust them. Once drawn, settings and participation lock; there is no redraw operation. Deleting an event permanently removes its assignments; create a new event if the group needs to start over.
+
+Each participant sees only their own recipient, including when the participant is the organizer. RLS enforces this on direct database reads as well as API responses. The recipient panel links only to lists already shared with the family; an event grants no additional wishlist access. Leaving the family revokes event and assignment reads. A participant who leaves before drawing must rejoin, leave the open event, or the organizer must start a new event. Account deletion can remove that person's assignments; a changed group should start over. Events and assignments require a connection and are not cached offline or sent by email.
+
+## Mobile share shortcut
+
+The PWA manifest registers a GET share target at `/capture` for `url`, `text`, and `title`, plus an **Add a wish** app shortcut. On supported browsers, install the deployed Ósk PWA, open a product page in another app, and choose Ósk from its share menu. Existing installations may need to reopen or reinstall to receive updated manifest registration. Actual OS share-menu registration requires checking on a device; browser tests verify the manifest and receiving flow.
+
+[Web Share Target](https://developer.chrome.com/docs/capabilities/web-apis/web-share-target) support varies. On iPhone/iPad and other unsupported browsers, choose **Copy Link**, open **Quick capture**, and paste. A public HTTPS URL is required; shared titles are editable suggestions, not verified product identity. Signing in preserves the capture return path. GET shares put product links/titles in the navigation URL, so do not share private or credential-bearing URLs.
+
+Offline, use manual entry to save into an editable cached list. Leaving the captured price blank saves its URL in item notes and creates no offer or price-history claim; the combined note and link must fit the existing 2,000-character note limit. The account-scoped outbox syncs it after reconnect. Research and price comparisons require a connection. This feature shares links, not photo files; Photo Quick Add remains a local-reference stub.
 
 Schema security is covered by the PGlite/Postgres tests, including default-private families, read-only group access, immediate revocation, append-only snapshots, and failed-check preservation. The live upgrade needs SQL Editor (or a database/management connection); the app’s service-role key cannot execute DDL.
 
