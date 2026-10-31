@@ -1,0 +1,30 @@
+import { test, expect } from '@playwright/test'
+import sharp from 'sharp'
+
+test('profile name and picture persist and appear in the account link', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  await page.goto('/')
+  await page.getByRole('link', { name: 'Edit your profile' }).click()
+  await page.getByLabel('Your name', { exact: true }).fill('Ólafur Jónsson')
+  await page.getByRole('button', { name: 'Save profile', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('Your name has been updated.')
+  const image = await sharp({ create: { width: 80, height: 80, channels: 3, background: '#637e84' } }).png().toBuffer()
+  await page.getByLabel('Upload profile picture', { exact: true }).setInputFiles({ name: 'profile.png', mimeType: 'image/png', buffer: image })
+  await expect(page.getByRole('status')).toContainText('Your profile picture has been updated.')
+  await expect(page.locator('.profile-picture-row img')).toBeVisible()
+  await page.reload()
+  await expect(page.getByLabel('Your name', { exact: true })).toHaveValue('Ólafur Jónsson')
+  await expect(page.locator('.profile-picture-row img')).toBeVisible()
+  await page.getByRole('link', { name: 'Back to your wishes' }).click()
+  await expect(page.getByRole('link', { name: 'Edit your profile' })).toContainText('Ólafur Jónsson')
+  await expect(page.locator('.account-profile-link img')).toBeVisible()
+  await page.getByRole('link', { name: 'Edit your profile' }).click()
+  await page.getByRole('button', { name: 'Remove picture', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('Your profile picture has been removed.')
+  await page.reload()
+  await expect(page.locator('.profile-picture-row img')).toHaveCount(0)
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  expect(errors).toEqual([])
+})

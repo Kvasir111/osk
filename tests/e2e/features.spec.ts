@@ -1,0 +1,61 @@
+import { test, expect } from '@playwright/test'
+
+test('family hubs keep lists private until shared and persist local changes', async ({ page }) => {
+  await page.goto('/family')
+  await page.getByLabel('New family name').fill('Rowe family')
+  await page.getByRole('button', { name: 'Create family', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Rowe family', exact: true })).toBeVisible()
+  await expect(page.getByText('No lists shared yet.', { exact: false })).toBeVisible()
+  await page.getByLabel('Share one of your lists').selectOption({ label: 'Christmas wishes' })
+  await page.getByRole('button', { name: 'Share with family', exact: true }).click()
+  await expect(page.locator('.family-list-row')).toHaveCount(1)
+  await page.reload()
+  await expect(page.locator('.family-list-row')).toContainText('Christmas wishes')
+  await page.getByRole('button', { name: 'Stop sharing', exact: true }).click()
+  await expect(page.locator('.family-list-row')).toHaveCount(0)
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.getByLabel('Family name', { exact: true }).fill('Christmas crew')
+  await page.getByRole('button', { name: 'Save family name', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Christmas crew', exact: true })).toBeVisible()
+})
+
+test('quick capture preserves the product URL in its manual fallback and saves to the chosen list', async ({ page }) => {
+  await page.goto('/capture?url=https%3A%2F%2Fbooks.example.com%2Fbook%3Fvariant%3Dhardcover')
+  await expect(page.getByLabel('Product link', { exact: true })).toHaveValue('https://books.example.com/book?variant=hardcover')
+  await page.getByLabel('Save to wishlist').selectOption({ label: 'Someday, maybe' })
+  await page.getByRole('button', { name: 'Enter details manually from this link' }).click()
+  await expect(page.getByLabel('Product URL', { exact: true })).toHaveValue('https://books.example.com/book?variant=hardcover')
+  await page.getByLabel('Product name', { exact: true }).fill('A captured book')
+  await page.getByLabel('Exact variant').fill('Hardcover')
+  await page.getByLabel('Price in USD', { exact: true }).fill('18.50')
+  await page.getByRole('button', { name: 'Add to wishlist', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('A captured book added to Someday, maybe.')
+  await page.getByRole('link', { name: 'View your list' }).click()
+  await page.getByRole('button', { name: 'A captured book', exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText('$18.50')
+})
+
+test('shared item history shows observed sale context, per-store prices, and unverified checks', async ({ page }) => {
+  const token = '10000000-0000-4000-8000-000000000001'
+  const itemId = '20000000-0000-4000-8000-000000000001'
+  const offer = { retailer: 'Bookshop', url: 'https://shop.example.com/book', price_cents: 700, seller_type: 'retailer', us_shipping: 'unknown', availability: 'in_stock', shipping_note: '' }
+  const now = new Date()
+  const item = { id: itemId, list_id: 'list', name: 'A tracked book', variant: 'Hardcover', category: 'Books', notes: '', msrp_cents: 2000, msrp_source_url: 'https://publisher.example.com/book', offers: [offer], checked_at: now.toISOString(), last_attempt_at: now.toISOString(), refresh_status: 'ok', price_check_details: { warnings: ['Some stores could not be verified.'], retailer_checks: [{ retailer: 'Another shop', url: 'https://another.example.com/book', note: 'Price blocked for this variant.' }] } }
+  const history = [1, 2, 3, 4].map((days, index) => ({ id: String(days), item_id: itemId, name: item.name, variant: item.variant, observed_at: new Date(now.getTime() - days * 86400000).toISOString(), source: 'search', offers: [{...offer, price_cents: 1000 + index * 100}], msrp_cents: 2000 }))
+  history.unshift({ ...history[0]!, id: 'today', observed_at: now.toISOString(), offers: [offer] })
+  await page.route(`**/api/share/${token}`, route => route.fulfill({ json: { list: {name:'Family books', description:'Read something good',occasion:'christmas'}, items:[item] } }))
+  await page.route(`**/api/share/${token}/history/${itemId}`, route => route.fulfill({json:history}))
+  await page.goto(`/share/${token}`)
+  await page.getByRole('button', { name: 'A tracked book', exact: true }).click()
+  await expect(page.getByRole('region', { name: 'Price history', exact: true })).toContainText('$4.50 below the typical best price')
+  await expect(page.getByRole('img', { name: /Observed USD prices/ })).toBeVisible()
+  await page.getByLabel('Chart prices').selectOption('shop.example.com')
+  await expect(page.getByRole('region', { name: 'Price check status', exact: true })).toContainText('Price blocked for this variant.')
+  await page.getByText('Price records (5)', { exact: true }).click()
+  await expect(page.locator('.history-records table')).toContainText('$7')
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.getByRole('button', { name: 'Dark mode', exact: true }).click({force:true})
+  await page.screenshot({ path:'/tmp/osk-history-mobile.png', fullPage:true })
+})

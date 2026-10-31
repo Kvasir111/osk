@@ -1,0 +1,221 @@
+import { PGlite } from '@electric-sql/pglite'
+import { readFile } from 'node:fs/promises'
+import { beforeAll, afterAll, beforeEach, afterEach, describe, expect, it } from 'vitest'
+
+const owner = '10000000-0000-0000-0000-000000000001'
+const editor = '10000000-0000-0000-0000-000000000002'
+const viewer = '10000000-0000-0000-0000-000000000003'
+const outsider = '10000000-0000-0000-0000-000000000004'
+const list = '20000000-0000-0000-0000-000000000001'
+const item = '30000000-0000-0000-0000-000000000001'
+let db: PGlite
+
+beforeAll(async () => {
+  db = new PGlite()
+  await db.exec(`create role anon; create role authenticated; create role service_role bypassrls;
+    create schema auth; create table auth.users(id uuid primary key);
+    create function auth.uid() returns uuid language sql stable as $$
+      select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid
+    $$;
+    grant usage on schema auth to anon,authenticated,service_role;
+    grant execute on function auth.uid() to anon,authenticated,service_role;`)
+  await db.exec(await readFile(new URL('../../supabase/schema.sql', import.meta.url), 'utf8'))
+  await db.exec(await readFile(new URL('../../supabase/features.sql', import.meta.url), 'utf8'))
+  await db.exec(await readFile(new URL('../../supabase/search-jobs.sql', import.meta.url), 'utf8'))
+  await db.exec(await readFile(new URL('../../supabase/item-pictures.sql', import.meta.url), 'utf8'))
+  await db.exec(`insert into auth.users values ('${owner}'),('${editor}'),('${viewer}'),('${outsider}');
+    insert into public.wish_lists(id,owner_id,name) values('${list}','${owner}','Christmas');
+    insert into public.list_members values('${list}','${editor}','editor'),('${list}','${viewer}','viewer');
+    insert into public.wish_items(id,list_id,name) values('${item}','${list}','Exact product');`)
+})
+afterAll(async () => { await db.close() })
+beforeEach(async () => { await db.exec('begin') })
+afterEach(async () => { await db.exec('rollback') })
+async function asUser(id: string, role = 'authenticated') {
+  await db.exec(`set local role ${role}`)
+  await db.query("select set_config('request.jwt.claim.sub',$1,true)", [id])
+}
+async function denied(sql: string) {
+  await db.exec('savepoint denied_operation')
+  await expect(db.exec(sql)).rejects.toThrow(/permission denied|row-level security/)
+  await db.exec('rollback to savepoint denied_operation; release savepoint denied_operation')
+}
+
+describe('Database isolation with real Postgres RLS', () => {
+  it('enables RLS on every application table', async () => {
+    const result = await db.query<{ relrowsecurity: boolean }>("select relrowsecurity from pg_class join pg_namespace n on n.oid=relnamespace where n.nspname='public' and relkind='r'")
+    expect(result.rows).toHaveLength(11)
+    expect(result.rows.every(row => row.relrowsecurity)).toBe(true)
+  })
+  it('lets owners create with RETURNING, read, update, and delete their lists', async () => {
+    await asUser(owner)
+    const inserted = await db.query<{ id: string }>(`insert into wish_lists(owner_id,name) values('${owner}','Birthday') returning id`)
+    expect(inserted.rows).toHaveLength(1)
+    const id = inserted.rows[0]!.id
+    expect((await db.query(`update wish_lists set name='New name' where id='${id}' returning name`)).rows).toEqual([{ name: 'New name' }])
+    expect((await db.query(`delete from wish_lists where id='${id}' returning id`)).rows).toHaveLength(1)
+  })
+  it('blocks list ownership reassignment and direct share-token changes', async () => {
+    await asUser(owner)
+    await denied(`update wish_lists set owner_id='${outsider}' where id='${list}'`)
+    await denied(`update wish_lists set share_token=gen_random_uuid() where id='${list}'`)
+    await denied(`insert into wish_lists(owner_id,name,share_token) values('${owner}','Unsafe',gen_random_uuid())`)
+  })
+  it('lets editors change items while list management remains with the owner', async () => {
+    await asUser(editor)
+    expect((await db.query('select * from wish_lists')).rows).toHaveLength(1)
+    expect((await db.query(`update wish_items set notes='Please' where id='${item}' returning id`)).rows).toHaveLength(1)
+    expect((await db.query(`insert into wish_items(list_id,name) values('${list}','Another item') returning id`)).rows).toHaveLength(1)
+    expect((await db.query(`update wish_lists set name='No' where id='${list}' returning id`)).rows).toHaveLength(0)
+    expect((await db.query(`delete from wish_lists where id='${list}' returning id`)).rows).toHaveLength(0)
+    await denied(`insert into list_members values('${list}','${outsider}','editor')`)
+    await denied(`update wish_items set list_id=gen_random_uuid() where id='${item}'`)
+    expect((await db.query(`delete from wish_items where id='${item}' returning id`)).rows).toHaveLength(1)
+  })
+  it('lets viewers read and blocks item mutation', async () => {
+    await asUser(viewer)
+    expect((await db.query('select * from wish_items')).rows).toHaveLength(1)
+    await denied(`insert into wish_items(list_id,name) values('${list}','No')`)
+    expect((await db.query(`update wish_items set notes='No' where id='${item}' returning id`)).rows).toHaveLength(0)
+    expect((await db.query(`delete from wish_items where id='${item}' returning id`)).rows).toHaveLength(0)
+  })
+  it('hides lists, items, and membership from unrelated users', async () => {
+    await asUser(outsider)
+    for (const table of ['wish_lists', 'wish_items', 'list_members']) expect((await db.query(`select * from ${table}`)).rows).toHaveLength(0)
+    await denied(`insert into wish_items(list_id,name) values('${list}','No')`)
+    await denied(`insert into wish_lists(owner_id,name) values('${owner}','No')`)
+    expect((await db.query(`update wish_items set notes='No' where id='${item}' returning id`)).rows).toHaveLength(0)
+    expect((await db.query(`delete from wish_items where id='${item}' returning id`)).rows).toHaveLength(0)
+  })
+  it('does not expose any raw table or service RPC to anonymous visitors', async () => {
+    await asUser('', 'anon')
+    for (const table of ['wish_lists', 'wish_items', 'list_members', 'list_invites', 'ai_usage']) {
+      await denied(`select * from ${table}`)
+      await denied(`delete from ${table}`)
+    }
+    await denied(`select public.reserve_ai_request('${owner}')`)
+    await denied(`select public.claim_price_check('${item}',now())`)
+    await denied(`select private.can_access_list('${list}')`)
+  })
+  it('keeps invitations, budgets, worker leases, and membership writes service-only', async () => {
+    await asUser(owner)
+    await denied('select * from list_invites')
+    await denied('select * from ai_usage')
+    await denied(`select public.reserve_ai_request('${owner}')`)
+    await denied(`select public.claim_price_check('${item}',now())`)
+    await denied(`delete from list_members where list_id='${list}'`)
+  })
+  it('reserves only 20 interactive requests per user per UTC day', async () => {
+    await asUser('', 'service_role')
+    for (let i = 0; i < 20; i++) expect((await db.query<{ ok: boolean }>(`select reserve_ai_request('${owner}') as ok`)).rows[0]!.ok).toBe(true)
+    expect((await db.query<{ ok: boolean }>(`select reserve_ai_request('${owner}') as ok`)).rows[0]!.ok).toBe(false)
+    expect((await db.query<{ ok: boolean }>(`select reserve_ai_request('${editor}') as ok`)).rows[0]!.ok).toBe(true)
+  })
+  it('leases each due item only once, preventing duplicate daily spend', async () => {
+    await asUser('', 'service_role')
+    expect((await db.query(`select * from claim_price_check('${item}',now())`)).rows).toHaveLength(1)
+    expect((await db.query(`select * from claim_price_check('${item}',now())`)).rows).toHaveLength(0)
+  })
+})
+
+const family = '40000000-0000-0000-0000-000000000001'
+async function seedFamily() {
+  await db.exec(`insert into families(id,owner_id,name) values('${family}','${owner}','Our family');
+    insert into family_members values('${family}','${outsider}');`)
+}
+describe('Family boundaries and price history', () => {
+  it('lets an organizer create a family with RETURNING and keeps ownership immutable', async () => {
+    await asUser(owner)
+    expect((await db.query(`insert into families(owner_id,name) values('${owner}','Our people') returning id`)).rows).toHaveLength(1)
+    await denied(`update families set owner_id='${outsider}'`)
+    await denied(`insert into families(owner_id,name) values('${outsider}','Impersonation')`)
+  })
+  it('keeps lists private until their owner explicitly shares them with the family', async () => {
+    await seedFamily()
+    await asUser(outsider)
+    expect((await db.query('select * from families')).rows).toHaveLength(1)
+    expect((await db.query('select * from wish_lists')).rows).toHaveLength(0)
+    await denied(`insert into family_lists values('${family}','${list}')`)
+    await db.exec('reset role')
+    await asUser(owner)
+    await db.exec(`insert into family_lists values('${family}','${list}')`)
+    await asUser(outsider)
+    expect((await db.query('select * from wish_lists')).rows).toHaveLength(1)
+    expect((await db.query('select * from wish_items')).rows).toHaveLength(1)
+    expect((await db.query(`update wish_items set notes='No' returning id`)).rows).toHaveLength(0)
+    expect((await db.query(`delete from wish_items returning id`)).rows).toHaveLength(0)
+    await denied(`insert into wish_items(list_id,name) values('${list}','No')`)
+    await denied(`insert into family_members values('${family}','${editor}')`)
+    await asUser(editor)
+    expect((await db.query('select * from families')).rows).toHaveLength(0)
+    expect((await db.query('select * from family_members')).rows).toHaveLength(0)
+  })
+  it('revokes family access immediately on unshare or membership removal', async () => {
+    await seedFamily()
+    await db.exec(`insert into family_lists values('${family}','${list}')`)
+    await asUser(outsider)
+    expect((await db.query('select * from wish_items')).rows).toHaveLength(1)
+    await db.exec('reset role')
+    await db.exec(`delete from family_members where user_id='${outsider}'`)
+    await asUser(outsider)
+    expect((await db.query('select * from families')).rows).toHaveLength(0)
+    expect((await db.query('select * from wish_items')).rows).toHaveLength(0)
+    await db.exec('reset role')
+    await db.exec(`insert into family_members values('${family}','${outsider}'); delete from family_lists`)
+    await asUser(outsider)
+    expect((await db.query('select * from wish_items')).rows).toHaveLength(0)
+  })
+  it('stops sharing a departing member’s own lists with the remaining family', async () => {
+    await seedFamily()
+    await db.exec(`insert into wish_lists(id,owner_id,name) values('20000000-0000-0000-0000-000000000002','${outsider}','Private again');
+      insert into family_lists values('${family}','20000000-0000-0000-0000-000000000002');
+      delete from family_members where user_id='${outsider}'`)
+    await asUser(owner)
+    expect((await db.query('select * from wish_lists')).rows).toHaveLength(1)
+  })
+  it('records successful observations atomically, keeps manual entries separate, and ignores failed checks', async () => {
+    await asUser(owner)
+    await db.query(`update wish_items set offers=$1::jsonb where id='${item}'`, [JSON.stringify([{price_cents:1000}])])
+    expect((await db.query('select source from price_observations')).rows).toEqual([{source:'manual'}])
+    await db.exec(`update wish_items set checked_at=now(),refresh_status='ok' where id='${item}'`)
+    expect((await db.query('select * from price_observations')).rows).toHaveLength(2)
+    await db.exec(`update wish_items set last_attempt_at=now(),refresh_status='failed' where id='${item}'`)
+    expect((await db.query('select * from price_observations')).rows).toHaveLength(2)
+    await denied(`delete from price_observations`)
+    await denied(`insert into price_observations(item_id,name,variant,source,offers) values('${item}','Forged','','search','[]')`)
+    await asUser(viewer)
+    expect((await db.query('select * from price_observations')).rows).toHaveLength(2)
+    await asUser(outsider)
+    expect((await db.query('select * from price_observations')).rows).toHaveLength(0)
+    await asUser(owner)
+    await db.exec(`delete from wish_items where id='${item}'`)
+    expect((await db.query('select * from price_observations')).rows).toHaveLength(0)
+  })
+})
+
+describe('Private durable search jobs', () => {
+  it('limits polling to the requesting account and keeps all job mutations server-only', async () => {
+    await db.exec(`insert into product_search_jobs(user_id,query) values('${owner}','Exact product URL')`)
+    await asUser(owner)
+    expect((await db.query('select * from product_search_jobs')).rows).toHaveLength(1)
+    await denied(`update product_search_jobs set status='completed'`)
+    await denied(`insert into product_search_jobs(user_id,query) values('${owner}','Fake result')`)
+    await asUser(editor)
+    expect((await db.query('select * from product_search_jobs')).rows).toHaveLength(0)
+    await asUser('', 'anon')
+    await denied('select * from product_search_jobs')
+  })
+})
+
+describe('Product pictures follow item permissions',()=>{
+  it('allows editors to change pictures while viewers and unrelated users cannot',async()=>{
+    await db.exec(`update wish_items set offers='[{"price_cents":1000}]',checked_at=now() where id='${item}'`)
+    await asUser(editor)
+    expect((await db.query(`update wish_items set image_mode='custom',image_url='https://cdn.example.com/item.jpg' where id='${item}' returning image_url`)).rows).toHaveLength(1)
+    expect((await db.query('select * from price_observations')).rows).toHaveLength(1)
+    await asUser(viewer)
+    expect((await db.query(`update wish_items set image_url='https://other.example.com/item.jpg' where id='${item}' returning id`)).rows).toHaveLength(0)
+    await asUser(outsider)
+    expect((await db.query(`update wish_items set image_mode='none',image_url=null where id='${item}' returning id`)).rows).toHaveLength(0)
+  })
+})

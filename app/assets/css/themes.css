@@ -1,0 +1,83 @@
+:root {
+  color-scheme: light;
+  --osk-page: #f7f8f8;
+  --osk-surface: #fcfdfd;
+  --osk-surface-muted: #edf1ef;
+  --osk-surface-soft: #e3e9e8;
+  --osk-surface-active: #d4dfe0;
+  --osk-border: #d8e1df;
+  --osk-text-strong: #293f47;
+  --osk-text-muted: #5e7177;
+  --osk-text-subtle: #6a7e85;
+  --osk-accent: #3c4e54;
+  --osk-accent-hover: #2d3b3f;
+  --osk-on-accent: #f3f5f5;
+  --osk-focus: #5b7780;
+  --osk-badge-bg: #f4f6f5;
+  --osk-art-warm: #eee9e2;
+  --osk-art-highlight: #ffffff50;
+  --osk-error-bg: #f9eee8;
+  --osk-error-text: #985b43;
+  --osk-error-border: #ecd9ce;
+  --osk-warning-bg: #f5f0e8;
+  --osk-warning-text: #6f5e45;
+  --osk-warning-border: #dfd4c3;
+  --osk-overlay: #14242c80;
+  --osk-shadow: #172d3417;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --osk-page: #141e23;
+  --osk-surface: #1c2a30;
+  --osk-surface-muted: #19262b;
+  --osk-surface-soft: #25373d;
+  --osk-surface-active: #314951;
+  --osk-border: #354950;
+  --osk-text-strong: #e0e9e8;
+  --osk-text-muted: #aabdc1;
+  --osk-text-subtle: #9eb3b9;
+  --osk-accent: #afcdcd;
+  --osk-accent-hover: #c6dedd;
+  --osk-on-accent: #15272b;
+  --osk-focus: #b8d8d5;
+  --osk-badge-bg: #253a40;
+  --osk-art-warm: #39362f;
+  --osk-art-highlight: #d5e7e009;
+  --osk-error-bg: #392a29;
+  --osk-error-text: #f0b39c;
+  --osk-error-border: #705044;
+  --osk-warning-bg: #38342a;
+  --osk-warning-text: #dcc7a4;
+  --osk-warning-border: #655b47;
+  --osk-overlay: #070e14b3;
+  --osk-shadow: #00000030;
+  --osk-ink: #e0e9e8;
+  --osk-fog: #6c8b91;
+  --osk-mist: #334e55;
+  --osk-line: #415d65;
+  --osk-sand: #b49b7b;
+}
+
+:root[data-theme='dark'] .text-amber-700 { color: #f0c18a; }
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid var(--osk-border);
+  border-radius: 6px;
+  background: var(--osk-surface);
+  color: var(--osk-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.theme-toggle:hover { background: var(--osk-surface-soft); }
+.theme-toggle-global { position: fixed; top: 20px; right: 24px; z-index: 25; }
+.theme-switch { width: 24px; height: 14px; padding: 2px; border-radius: 10px; background: var(--osk-border); }
+.theme-switch > span { display: block; width: 10px; height: 10px; border-radius: 50%; background: var(--osk-text-muted); }
+.theme-toggle[aria-pressed='true'] .theme-switch { background: var(--osk-accent); }
+.theme-toggle[aria-pressed='true'] .theme-switch > span { transform: translateX(10px); background: var(--osk-on-accent); }
