@@ -89,6 +89,8 @@ Add these environment variables in Netlify, available at build time **and to Fun
 
 Generate the worker secret with `openssl rand -hex 32`. Netlify supplies `URL` automatically for dispatch to the same site's workers. Interactive jobs require `product-search-background` and the existing `PRICE_REFRESH_SECRET`; production does not use an in-memory fallback. Local Nuxt development runs jobs in its persistent dev process. A running local job can be interrupted by a server restart; its saved findings remain recoverable and stalled jobs can be retried. Rebuild after public config changes. Do not publish `.env`, secret keys, or a database password.
 
+Model names are public configuration. `netlify.toml` excludes only `OPENAI_MODEL` from environment-value secret scanning, so its documented default does not block deployment if the variable was marked secret in Netlify. API keys and worker secrets remain covered by scanning. Configure model variables as non-secret values when adding them in Netlify.
+
 ### Daily refresh
 
 `daily-prices` runs at **12:00 UTC every day** (7 a.m. Chicago during daylight saving time; 6 a.m. standard time). It finds items not attempted since UTC midnight and dispatches batches of ten to `refresh-prices-background`. Each worker validates a secret and atomically leases items through a service-only RPC, preventing duplicate checks by overlapping workers. Each item search has a 48-second deadline; batches stay below the background function's 15-minute limit. [Netlify scheduling](https://docs.netlify.com/build/functions/scheduled-functions/), [background functions](https://docs.netlify.com/build/functions/background-functions/).

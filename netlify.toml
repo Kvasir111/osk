@@ -4,6 +4,8 @@
 [build.environment]
   NODE_VERSION = "24"
   NITRO_PRESET = "netlify"
+  # Model identifiers are public configuration, not credentials.
+  SECRETS_SCAN_OMIT_KEYS = "OPENAI_MODEL"
 [functions]
   directory = "netlify/functions"
   node_bundler = "esbuild"
