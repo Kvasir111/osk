@@ -1,4 +1,4 @@
-import { adminDatabase } from '../../server/utils/database'
+import { adminDatabase } from '../../server/utils/database-core'
 
 // Dispatch quickly; the background worker has a 15-minute execution window.
 export default async () => {

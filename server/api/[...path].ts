@@ -19,6 +19,7 @@ import { dispatchSearchJob, approveSearchItem } from '../utils/search-jobs'
 import { captureQuery } from '../../shared/capture'
 import { accountInvitationRequest, redeemAccountInvitation } from '../utils/account-invitations'
 import { createOfflineItem, createOfflineList } from '../utils/offline-create'
+import { stalledSearch } from '../../shared/search-progress'
 
 const uuid = z.string().uuid()
 export default defineEventHandler(async event => {
@@ -237,8 +238,9 @@ export default defineEventHandler(async event => {
         uuid.parse(id)
         let job = dbResult(await db.from('product_search_jobs').select('*').eq('id',id).maybeSingle())
         if (!job) throw createError({ statusCode:404, statusMessage:'Search not found.' })
-        if (['queued','running'].includes(job.status) && Date.now()-new Date(job.updated_at).getTime()>180000) {
-          const changed=dbResult(await adminDatabase().from('product_search_jobs').update({status:'failed',error_message:'This search stopped before finishing. Available findings are kept; you can start a new search.',finished_at:new Date().toISOString()})
+        const stalled = stalledSearch(job)
+        if (stalled) {
+          const changed=dbResult(await adminDatabase().from('product_search_jobs').update(stalled)
             .eq('id',id).eq('status',job.status).eq('updated_at',job.updated_at).select('*').maybeSingle())
           if(changed)job=changed
         }

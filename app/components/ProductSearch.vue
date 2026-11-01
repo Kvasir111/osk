@@ -4,7 +4,7 @@ import { captureUrl } from '../../shared/capture'
 import { money } from '../../shared/pricing'
 import { retailerCount } from '../../shared/retailers'
 const props = defineProps<{ initialQuery: string; saving?: boolean; resumeId?: string }>()
-const emit = defineEmits<{ approve: [product: ProductDraft, checkedAt: string, details: PriceCheckDetails, searchId: string]; manual: [url?: string] }>()
+const emit = defineEmits<{ approve: [product: ProductDraft, checkedAt: string, details: PriceCheckDetails, searchId: string]; manual: [url?: string, name?: string] }>()
 const { demo } = useAccount()
 const {jobs,start,fetchJob}=useSearchJobs()
 const query = ref(props.initialQuery)
@@ -32,7 +32,10 @@ onMounted(async()=>{
     finally{starting.value=false}
   }else if(props.initialQuery.trim().length>=3)search()
 })
-function manual(){emit('manual',captureUrl(query.value)||undefined)}
+function manual(){
+  const url = captureUrl(query.value)
+  emit('manual', url || undefined, url ? undefined : query.value.trim().slice(0,200))
+}
 function approve(product:ProductDraft){emit('approve',structuredClone(toRaw(product)),result.value!.checked_at,{warnings:[...(result.value!.warnings||[])],retailer_checks:structuredClone(toRaw(result.value!.retailer_checks||[]))},jobId.value)}
 </script>
 <template>
@@ -45,7 +48,8 @@ function approve(product:ProductDraft){emit('approve',structuredClone(toRaw(prod
     <p v-if="job?.error_message" class="error-message" role="alert">{{ job.error_message }}</p>
     <p v-if="job?.approved_item_id" class="success-message" role="status">This wish is already saved. {{ busy?'The remaining prices will be added automatically if you haven’t edited the item.':'Available results have been processed for your saved item.' }}</p>
     <p v-if="error" class="error-message" role="alert">{{ error }}</p>
-    <button v-if="!demo && (error || result)" class="secondary-button" @click="manual">Enter details manually{{ captureUrl(query) ? ' from this link' : '' }}</button>
+    <button v-if="!demo && !job?.approved_item_id" type="button" class="secondary-button" :disabled="saving" @click="manual">Enter details manually{{ captureUrl(query) ? ' from this link' : '' }}</button>
+    <p v-if="busy && !result" class="field-note">You can add this wish manually now. You don’t need to wait for research or know its price.</p>
     <template v-if="result">
       <p class="search-summary">{{ result.summary }}</p>
       <div v-if="result.warnings?.length" class="coverage-warning" role="status"><strong>Some prices are still unverified</strong><p v-for="warning in result.warnings" :key="warning">{{ warning }}</p></div>

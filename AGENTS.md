@@ -75,11 +75,13 @@ Run checks appropriate to the change; documentation-only changes do not require 
 | `pnpm run test:e2e` | Browser flows with demo/mocked APIs |
 | `pnpm run build` | Production build including service worker generation |
 | `pnpm run test:pwa` | Production-worker offline and sync tests |
+| `pnpm run test:functions` | Package and cold-load custom Netlify functions outside the repo |
 | `NITRO_PRESET=netlify pnpm run build` | Netlify adapter build |
 
 - Install Chromium with `pnpm exec playwright install chromium` if needed.
 - PWA tests require a fresh default/Node build using test-only public Supabase settings; see `playwright.pwa.config.ts` and `tests/pwa/preview.mjs`. Do not substitute live credentials into mocked QA flows.
 - Preserve the complete build script; running only `nuxt build` skips PWA generation.
+- The build also runs `test:functions`. Keep standalone worker imports free of `h3` by using `server/utils/database-core.ts`; `database.ts` holds Nitro request authentication. Test packaged functions without access to repository dependencies or live credentials.
 - Use mocked providers for routine tests. Do not send real invitation emails, mutate real user data, or consume paid research calls just for smoke tests.
 
 ## Deployment

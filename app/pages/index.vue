@@ -13,7 +13,8 @@ const error = ref('')
 const toast = ref('')
 const search = ref('')
 const captureSeed = ref<string>()
-function manualFromSearch(url?: string) { captureSeed.value = url; modal.value = 'manual' }
+const captureName = ref<string>()
+function manualFromSearch(url?: string, name?: string) { captureSeed.value = url; captureName.value = name; error.value = ''; modal.value = 'manual' }
 const filter = ref('All wishes')
 const sort = ref('recent')
 const listForm = reactive({ name: '', description: '', occasion: 'everyday' as 'everyday' | 'christmas' | 'birthday' | 'other' })
@@ -112,7 +113,7 @@ const occasionIcon = (occasion: string) => occasion === 'everyday' ? 'heart' : '
       </div>
     </main>
     <WishModal v-if="modal === 'list' || modal === 'edit-list'" :title="modal === 'list' ? 'Make room for a few wishes.' : 'A little list housekeeping.'" @close="modal = null"><form class="form-stack" @submit.prevent="saveList"><label>List name<input v-model="listForm.name" required maxlength="100" placeholder="Christmas wishes, Birthday ideas…" /></label><label>Occasion<select v-model="listForm.occasion"><option value="everyday">Just because</option><option value="christmas">Christmas</option><option value="birthday">Birthday</option><option value="other">Another occasion</option></select></label><label>A little introduction<textarea v-model="listForm.description" maxlength="500" placeholder="A note for the people you’ll share this with." rows="3" /></label><button class="primary-button full" :disabled="busy">{{ busy ? 'Saving…' : modal === 'list' ? 'Create my list' : 'Save changes' }}<WishIcon name="arrow" :size="17" /></button><button v-if="modal === 'edit-list'" type="button" class="text-button danger" :disabled="busy" @click="confirmDelete ? removeList() : confirmDelete = true">{{ confirmDelete ? 'Confirm: delete this list and its items' : 'Delete this list' }}</button><p v-if="error" class="error-message" role="alert">{{ error }}</p></form></WishModal>
-    <WishModal v-if="modal === 'manual' || modal === 'edit-item'" :title="modal === 'manual' ? 'Something to wish for.' : 'It’s all in the details.'" wide @close="modal = null"><ItemEditor :item="modal === 'edit-item' ? selected : undefined" :busy="busy" :initial-url="modal === 'manual' ? captureSeed : undefined" @save="saveItem" /><p v-if="error" class="error-message" role="alert">{{ error }}</p></WishModal>
+    <WishModal v-if="modal === 'manual' || modal === 'edit-item'" :title="modal === 'manual' ? 'Something to wish for.' : 'It’s all in the details.'" wide @close="modal = null"><ItemEditor :item="modal === 'edit-item' ? selected : undefined" :busy="busy" :initial-url="modal === 'manual' ? captureSeed : undefined" :initial-name="modal === 'manual' ? captureName : undefined" @save="saveItem" /><p v-if="error" class="error-message" role="alert">{{ error }}</p></WishModal>
     <WishModal v-if="modal === 'detail' && selected" :title="selected.name" wide @close="modal = null"><ProductDetails :item="selected" :editable="canEdit" :demo="demo" @edit="modal = 'edit-item'" @remove="removeItem" /><p v-if="error" class="error-message" role="alert">{{ error }}</p></WishModal>
     <WishModal v-if="modal === 'search'" title="Let’s find your next favorite." wide @close="modal = null"><ProductSearch :initial-query="search" :saving="busy" @approve="saveItem" @manual="manualFromSearch" /><p v-if="error" class="error-message" role="alert">{{ error }}</p></WishModal>
     <WishModal v-if="modal === 'share' && active" title="A wish shared is a hint given." @close="modal = null"><ShareList :list="active" @updated="active.share_token = $event" /></WishModal>

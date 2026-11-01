@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
-import { adminDatabase } from '../../server/utils/database'
+import { adminDatabase } from '../../server/utils/database-core'
 import { fillItemPicture } from '../../server/utils/product-images'
 export default async(request:Request)=>{
   const expected=Buffer.from(`Bearer ${process.env.PRICE_REFRESH_SECRET||''}`),received=Buffer.from(request.headers.get('Authorization')||'')

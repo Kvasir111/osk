@@ -1,10 +1,11 @@
-import {beforeEach,describe,expect,it,vi} from 'vitest'
+import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest'
 import type {SupabaseClient} from '@supabase/supabase-js'
-import {runSearchJob,applyApprovedResearch} from '../../server/utils/search-jobs'
+import {runSearchJob,applyApprovedResearch,dispatchSearchJob} from '../../server/utils/search-jobs'
 import {researchStage} from '../../server/utils/progressive-search'
 vi.mock('../../server/utils/progressive-search',async original=>({...await original<typeof import('../../server/utils/progressive-search')>(),researchStage:vi.fn()}))
 const product={name:'Book',variant:'Hardcover',category:'Books',notes:'',msrp_cents:null,msrp_source_url:null,offers:[]}
 const initial={summary:'Found',products:[product],sources:[],warnings:[],retailer_checks:[],checked_at:'2026-10-30T12:00:00Z'}
+afterEach(() => { vi.unstubAllEnvs(); vi.unstubAllGlobals() })
 let rows:Record<string,any[]>
 function fakeDb(){return {from:(table:string)=>{
  let changes:any,returning=false
@@ -28,6 +29,18 @@ beforeEach(()=>{
  rows={product_search_jobs:[{id:'job',user_id:'owner',query:'A book',product_url:null,status:'queued',result:null,approved_item_id:null,approved_snapshot:null}],wish_lists:[{id:'list',owner_id:'owner'}],wish_items:[],list_members:[]}
 })
 describe('Durable research lifecycle',()=>{
+ it('dispatches to the current deployment without redirects and requires asynchronous acceptance',async()=>{
+  vi.stubEnv('URL','https://osk.example.com')
+  vi.stubEnv('DEPLOY_URL','https://current--osk.netlify.app')
+  vi.stubEnv('PRICE_REFRESH_SECRET','test-only')
+  const fetcher=vi.fn().mockResolvedValue(new Response(null,{status:202}))
+  vi.stubGlobal('fetch',fetcher)
+  await dispatchSearchJob(fakeDb(),'job')
+  expect(String(fetcher.mock.calls[0]![0])).toBe('https://current--osk.netlify.app/.netlify/functions/product-search-background')
+  expect(fetcher.mock.calls[0]![1]).toMatchObject({redirect:'error',method:'POST'})
+  fetcher.mockResolvedValue(new Response('<html>App shell</html>',{status:200}))
+  await expect(dispatchSearchJob(fakeDb(),'job')).rejects.toThrow('not accepted')
+ })
  it('publishes an approvable product while a retailer is still working and claims work only once',async()=>{
   let finishAmazon!:(value:any)=>void
   const amazon=new Promise(resolve=>{finishAmazon=resolve})

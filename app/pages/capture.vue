@@ -7,6 +7,7 @@ const route = useRoute()
 const incoming = computed(() => sharedCapture(route.query))
 const url = ref(incoming.value.url)
 const sharedTitle = ref(incoming.value.title)
+const manualName = ref('')
 const lookup = ref('')
 const resumeId=ref(typeof route.query.search==='string'?route.query.search:'')
 const manual = ref(false)
@@ -35,10 +36,11 @@ function find() {
   if (!parsed) { error.value = 'Paste a public HTTPS product link.'; return }
   url.value = parsed; resumeId.value=''; lookup.value = parsed
 }
-function manually(candidate?: string) {
+function manually(candidate?: string, name?: string) {
   const parsed = captureUrl(candidate || url.value)
-  if (!parsed) { error.value = 'Paste a public HTTPS product link first.'; return }
-  url.value = parsed; lookup.value = ''; resumeId.value=''; manual.value = true
+  if (!parsed && name === undefined) { error.value = 'Paste a public HTTPS product link first.'; return }
+  manualName.value = name || sharedTitle.value
+  url.value = parsed || ''; error.value = ''; lookup.value = ''; resumeId.value=''; manual.value = true
 }
 async function approve(product: ProductDraft, checkedAt: string | null = null, details?: PriceCheckDetails, searchId?: string) {
   if (!editableLists.value.some(l => l.id === chosenList.value)) { error.value = 'Choose a list you can edit.'; return }
@@ -58,6 +60,6 @@ async function approve(product: ProductDraft, checkedAt: string | null = null, d
     <PhotoQuickAdd v-if="!loading && editableLists.length" :lists="editableLists" :initial-list-id="chosenList" />
     <section class="feature-panel form-stack"><p v-if="loading" role="status">Loading your lists…</p><template v-else><form class="form-stack" @submit.prevent="find"><label>Save to wishlist<select v-model="chosenList" required><option value="" disabled>Choose a list</option><option v-for="list in editableLists" :key="list.id" :value="list.id">{{ list.name }}</option></select></label><label>Product link<input v-model="url" type="url" required maxlength="2048" placeholder="https://store.com/product" /></label><button class="primary-button" :disabled="!chosenList || saving">Preview product & prices<WishIcon name="arrow" :size="17" /></button><button type="button" class="text-button" :disabled="!chosenList || saving" @click="manually()">Enter details manually from this link</button></form><p v-if="!editableLists.length" class="note-box"><NuxtLink to="/">Create a wishlist first →</NuxtLink></p><p class="field-note">You’ll review the exact model and variant before adding anything. If a store blocks access, you can enter the details yourself. Manual prices won’t count toward sale history.</p></template><p v-if="error" class="error-message" role="alert">{{ error }}</p><p v-if="success" class="success-message" role="status">{{ success }} <NuxtLink to="/">View your list →</NuxtLink></p></section>
     <WishModal v-if="lookup || resumeId" :key="lookup || resumeId" title="Review your captured wish." wide @close="lookup = ''; resumeId = ''"><ProductSearch :initial-query="lookup" :resume-id="resumeId || undefined" :saving="saving" @approve="approve" @manual="manually" /><p v-if="error" class="error-message" role="alert">{{ error }}</p></WishModal>
-    <WishModal v-if="manual" title="A few details, from your link." wide @close="manual = false"><ItemEditor :initial-url="url" :initial-name="sharedTitle" :busy="saving" @save="approve" /><p v-if="error" class="error-message" role="alert">{{ error }}</p></WishModal>
+    <WishModal v-if="manual" title="A few details, for your wish." wide @close="manual = false"><ItemEditor :initial-url="url || undefined" :initial-name="manualName" :busy="saving" @save="approve" /><p v-if="error" class="error-message" role="alert">{{ error }}</p></WishModal>
   </main>
 </template>

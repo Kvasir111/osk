@@ -1,6 +1,6 @@
 import { timingSafeEqual } from 'node:crypto'
 import { z } from 'zod'
-import { adminDatabase } from '../../server/utils/database'
+import { adminDatabase } from '../../server/utils/database-core'
 import { refreshItem } from '../../server/utils/refresh-prices'
 
 export default async (request: Request) => {

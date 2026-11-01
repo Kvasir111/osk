@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ProductSearchJob, SearchResult, WishItem } from '../../shared/types'
-import { dbResult } from './database'
+import { dbResult } from './database-core'
 import { resolveProductImage } from './product-images'
 import { researchStage, researchTasks, mergeResearch } from './progressive-search'
 
@@ -97,11 +97,12 @@ export async function runSearchJob(db: SupabaseClient, id: string) {
 export async function dispatchSearchJob(db: SupabaseClient, id: string) {
   if (process.env.URL) {
     if (!process.env.PRICE_REFRESH_SECRET) throw new Error('Background authentication is not configured')
-    const response=await fetch(new URL('/.netlify/functions/product-search-background',process.env.URL),{
+    // Pin dispatch to this deployment, avoiding alias redirects or a different published version.
+    const response=await fetch(new URL('/.netlify/functions/product-search-background',process.env.DEPLOY_URL || process.env.URL),{
       method:'POST',headers:{Authorization:`Bearer ${process.env.PRICE_REFRESH_SECRET}`,'Content-Type':'application/json'},
-      body:JSON.stringify({id}),signal:AbortSignal.timeout(10000),
+      body:JSON.stringify({id}),signal:AbortSignal.timeout(10000),redirect:'error',
     })
-    if(!response.ok)throw new Error('Background dispatch failed')
+    if(response.status !== 202)throw new Error('Background dispatch was not accepted')
     return
   }
   if(process.env.NETLIFY || process.env.NODE_ENV==='production')throw new Error('Background URL is not configured')
