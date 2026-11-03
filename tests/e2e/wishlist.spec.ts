@@ -14,7 +14,7 @@ test('local wishlists persist and item details can be edited and removed', async
   await page.getByRole('button', { name: 'Add a wish', exact: true }).click()
   await page.getByLabel('Product name').fill('A lovely book')
   await page.getByLabel('Exact variant').fill('Hardcover')
-  await page.getByRole('button', { name: 'Add a store' }).click()
+  await page.getByText('Store and shipping details', {exact:true}).click()
   await page.getByLabel('Store', { exact: true }).fill('Bookshop')
   await page.getByLabel('Price in USD', { exact: true }).fill('25.50')
   await page.getByLabel('Product URL', { exact: true }).fill('https://example.com/book')

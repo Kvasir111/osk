@@ -11,7 +11,7 @@ export function repairProduct(item: WishItem, detected: ProductDraft, previousUr
   const remaining = same ? trackingLinks(item).filter(url => url !== previousUrl && url !== selectedUrl) : []
   const notes = item.notes.replace(/https:\/\/[^\s<>"']+/g, url => url === previousUrl ? selectedUrl : url)
   const links = [...new Set([...remaining, selectedUrl])].filter(url => !notes.includes(url))
-  return { ...detected, category: item.category, notes: [notes, ...links.map(url => `Product link: ${url}`)].filter(Boolean).join('\n'), offers,
+  return { ...detected, priority: item.priority, gift_preferences: item.gift_preferences, status: item.status, category: item.category, notes: [notes, ...links.map(url => `Product link: ${url}`)].filter(Boolean).join('\n'), offers,
     msrp_cents: same ? item.msrp_cents ?? detected.msrp_cents : detected.msrp_cents,
     msrp_source_url: same && item.msrp_cents ? item.msrp_source_url : detected.msrp_source_url,
     image_mode: item.image_mode || 'auto', image_url: item.image_mode === 'custom' || item.image_mode === 'none' ? item.image_url : same ? item.image_url || detected.image_url : detected.image_url,

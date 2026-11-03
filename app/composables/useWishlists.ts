@@ -1,5 +1,6 @@
 import type { ProductDraft, WishItem, WishList, PriceCheckDetails } from '../../shared/types'
 import { normalizePicture } from '../../shared/product-images'
+import { duplicateWishes, priceEvidenceChanged } from '../../shared/wishes'
 import { demoData } from '../utils/demo'
 import { readOfflineAccount, saveOfflineSnapshot, putAddition, removeAddition, withOfflineLock, type PendingAddition, type OfflineSnapshot } from '../utils/offline-storage'
 import { overlayAdditions, syncProblem } from '../../shared/offline'
@@ -7,6 +8,8 @@ const runningSyncs = new Map<string, Promise<void>>()
 
 export function useWishlists() {
   const { api, demo, user } = useAccount()
+  const duplicates = useDuplicatePrompt()
+  const duplicateCopyIds = useState<Record<string,string>>('duplicate-copy-ids',()=>({}))
   const lists = useState<WishList[]>('wish-lists', () => [])
   const items = useState<WishItem[]>('wish-items', () => [])
   const roles = useState<Record<string, string>>('wish-roles', () => ({}))
@@ -220,9 +223,29 @@ export function useWishlists() {
       }catch{/* Optional picture hydration can wait until the next normal load. */}
     },delay)
   }
-  async function saveItem(product: ProductDraft, checked_at: string | null = null, itemId?: string, price_check_details?: PriceCheckDetails, search_id?: string, targetListId = activeId.value) {
+  async function saveItem(product: ProductDraft, checked_at: string | null = null, itemId?: string, price_check_details?: PriceCheckDetails, search_id?: string, targetListId = activeId.value, skipDuplicateIds: string[] = []) {
     if (!lists.value.some(l => l.id === targetListId)) throw new Error('Create a list first.')
+    const account = user.value?.id
     product=normalizePicture(product)
+    if (!itemId) {
+      const matches = duplicateWishes(product, items.value.filter(i => !skipDuplicateIds.includes(i.id)))
+      if (matches.length) {
+        const choice = await duplicates.ask(matches, targetListId)
+        if (!demo && user.value?.id !== account) throw new Error('Your account changed. Your wish was not added.')
+        if (choice === 'cancel') throw new Error('Wish not added. Your draft is still here.')
+        if (choice !== 'new') {
+          const existing = items.value.find(i => i.id === choice)
+          if (!existing) throw new Error('That wish is no longer available. Please try again.')
+          if (existing.list_id !== targetListId) {
+            const key = `${account || 'demo'}:${existing.id}:${targetListId}`
+            const copyId = duplicateCopyIds.value[key] ||= crypto.randomUUID()
+            await transferItems([{id:existing.id,copy_id:copyId}], targetListId, 'copy')
+            delete duplicateCopyIds.value[key]
+          }
+          return
+        }
+      }
+    }
     if (!demo && !itemId && !search_id) {
       if (!user.value) throw new Error('Sign in before adding a wish.')
       const target = lists.value.find(l => l.id === targetListId)!
@@ -233,15 +256,42 @@ export function useWishlists() {
     if (!demo && (!navigator.onLine || (itemId && pending.value.some(op => op.id === itemId)))) throw new Error('Sync and reconnect before editing saved wishes or approving research.')
     if (itemId) {
       const existing = items.value.find(i => i.id === itemId)!
-      const item = demo ? { ...existing, ...product, checked_at: null, last_attempt_at: null, price_check_details: undefined, refresh_status: 'never' as const } : await api<WishItem>(`/api/items/${itemId}`, { method: 'PATCH', body: product })
+      const item = demo ? { ...existing, ...product, ...(priceEvidenceChanged(existing,product)?{checked_at: null, last_attempt_at: null, price_check_details: undefined, refresh_status: 'never' as const}:{}) } : await api<WishItem>(`/api/items/${itemId}`, { method: 'PATCH', body: product, accountId:account })
+      if (!demo && user.value?.id !== account) return
       items.value = items.value.map(i => i.id === itemId ? item : i); awaitPicture(item)
     } else {
       const item: WishItem = demo ? { ...product, id: crypto.randomUUID(), list_id: targetListId,
         created_at: new Date().toISOString(), checked_at, last_attempt_at: checked_at, refresh_status: checked_at ? 'ok' : 'never' }
-        : await api(`/api/lists/${targetListId}/items`, { method: 'POST', body: { product, checked_at, price_check_details, search_id } })
+        : await api(`/api/lists/${targetListId}/items`, { method: 'POST', body: { product, checked_at, price_check_details, search_id }, accountId:account })
+      if (!demo && user.value?.id !== account) return
       items.value.unshift(item); awaitPicture(item)
     }
     persist()
+  }
+  function editableList(id: string) { return lists.value.some(l => l.id === id && (demo || l.owner_id === user.value?.id || roles.value[id] === 'editor')) }
+  async function updateDetails(id: string, details: Pick<ProductDraft, 'priority' | 'gift_preferences' | 'status'>) {
+    const account = user.value?.id
+    const existing = items.value.find(i => i.id === id)
+    if (!existing || !editableList(existing.list_id)) throw new Error('Editing access is required.')
+    if (!demo && (!navigator.onLine || existing.pending_sync)) throw new Error('Sync and reconnect before editing saved wishes.')
+    const item = demo ? {...existing, ...details} : await api<WishItem>(`/api/items/${id}/details`, {method:'PATCH',body:details,accountId:account})
+    if (!demo && user.value?.id !== account) return
+    items.value = items.value.map(i => i.id === id ? item : i); persist()
+  }
+  async function transferItems(entries: {id:string;copy_id:string}[], target: string, mode: 'move'|'copy') {
+    const account = user.value?.id
+    if (!editableList(target)) throw new Error('Choose a destination you can edit.')
+    if (!demo && (!navigator.onLine || lists.value.find(l => l.id === target)?.pending_sync || entries.some(e => items.value.find(i => i.id === e.id)?.pending_sync))) throw new Error('Sync and reconnect before moving or copying wishes.')
+    if (mode === 'move' && entries.some(e => !editableList(items.value.find(i => i.id === e.id)?.list_id || ''))) throw new Error('Editing access to each source list is required.')
+    if (entries.length < 1 || entries.length > 50) throw new Error('Choose between 1 and 50 wishes.')
+    const saved: WishItem[] = demo ? entries.map(entry => {
+      const source = items.value.find(i => i.id === entry.id)
+      if (!source) throw new Error('That wish is no longer available.')
+      return mode === 'move' ? {...source,list_id:target} : items.value.find(i => i.id === entry.copy_id) || {...source,id:entry.copy_id,list_id:target,status:'active',created_at:new Date().toISOString(),checked_at:null,last_attempt_at:null,refresh_status:'never'}
+    }) : await api<WishItem[]>('/api/items/transfer', {method:'POST',body:{target,mode,items:entries},accountId:account})
+    if (!demo && user.value?.id !== account) return
+    const merged = new Map(items.value.map(i => [i.id,i])); for (const item of saved) merged.set(item.id,item)
+    items.value = [...merged.values()]; persist()
   }
   async function deleteItem(id: string) {
     if (!demo && pending.value.some(op => op.id === id)) return discardAddition(id)
@@ -249,5 +299,5 @@ export function useWishlists() {
     if (!demo) await api(`/api/items/${id}`, { method: 'DELETE' })
     items.value = items.value.filter(i => i.id !== id); persist()
   }
-  return { online, syncing, pending, syncError, storageError, lastSavedAt, restore, sync, discardAddition, lists, items, activeId, active, activeItems, loaded, roles, isOwner, canEdit, load, createList, updateList, deleteList, saveItem, deleteItem }
+  return { online, syncing, pending, syncError, storageError, lastSavedAt, restore, sync, discardAddition, lists, items, activeId, active, activeItems, loaded, roles, isOwner, canEdit, load, createList, updateList, deleteList, saveItem, deleteItem, updateDetails, transferItems, editableList }
 }

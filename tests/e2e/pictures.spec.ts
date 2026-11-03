@@ -7,6 +7,7 @@ test('custom pictures persist and broken images return to the category artwork',
  await page.getByRole('button',{name:'Add a wish',exact:true}).click()
  await page.getByLabel('Product name',{exact:true}).fill('Picture book')
  await page.getByRole('combobox',{name:'Category',exact:true}).selectOption('Books')
+ await page.getByText('Pictures and MSRP',{exact:true}).click()
  await page.getByLabel('Picture style').selectOption('custom')
  await page.getByLabel('Picture URL').fill('https://images.example.com/book.png')
  await expect(page.getByRole('dialog').getByRole('img',{name:'Picture book',exact:true})).toBeVisible()

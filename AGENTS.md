@@ -55,6 +55,8 @@
 - Put subsequent changes in reviewed additive SQL. Editing a SQL file does not apply it to the live project, and a service-role API key cannot apply DDL. Report schema application separately from local validation.
 - `supabase/secret-santa.sql` is the additive event upgrade after the initial setup. Keep event writes transactional through the service-only RPC, with verified caller IDs and current membership checks; browser roles receive scoped reads only.
 
+- `supabase/wishlist-usability.sql` adds priority, gift preferences, status, and caller-scoped transactional transfers. Moves preserve item IDs/history; copies start with manual offers. Received and archived wishes pause checks and stay out of public share links.
+
 ## Offline and PWA behavior
 
 - Keep cached data and queued additions scoped to the authenticated account. Do not copy auth tokens into IndexedDB or show/sync one account's drafts under another account.

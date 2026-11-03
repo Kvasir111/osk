@@ -39,7 +39,7 @@ Without Supabase configuration, the app runs an explicitly labeled local demo. S
 ## Connect the new Supabase project
 
 1. Use a **dedicated project**, separate from the drinks app.
-2. Run [`supabase/schema.sql`](supabase/schema.sql), then [`supabase/features.sql`](supabase/features.sql), [`supabase/search-jobs.sql`](supabase/search-jobs.sql), [`supabase/item-pictures.sql`](supabase/item-pictures.sql), [`supabase/account-invitations.sql`](supabase/account-invitations.sql), and [`supabase/secret-santa.sql`](supabase/secret-santa.sql), each **once**, in its SQL Editor. Together they create the tables, RLS policies, grants, and service-only transaction/budget/lease functions. These files are setup SQL, not proof of a live migration. Keep future changes in reviewed migrations; do not rerun the bootstrap on existing tables.
+2. Run [`supabase/schema.sql`](supabase/schema.sql), then [`supabase/features.sql`](supabase/features.sql), [`supabase/search-jobs.sql`](supabase/search-jobs.sql), [`supabase/item-pictures.sql`](supabase/item-pictures.sql), [`supabase/account-invitations.sql`](supabase/account-invitations.sql), and [`supabase/secret-santa.sql`](supabase/secret-santa.sql), and [`supabase/wishlist-usability.sql`](supabase/wishlist-usability.sql), each **once**, in its SQL Editor. Together they create the tables, RLS policies, grants, and service-only transaction/budget/lease functions. These files are setup SQL, not proof of a live migration. Keep future changes in reviewed migrations; do not rerun the bootstrap on existing tables.
 3. In the project's Connect/API settings, get the project URL and publishable key. Put them in `.env` as `NUXT_PUBLIC_SUPABASE_URL` and `NUXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
 4. Add the **server-only** service-role key as `SUPABASE_SERVICE_ROLE_KEY`. It supports token-based shared views, account invitations, and daily workers. It never goes into public runtime config.
 5. Configure Supabase Auth:
@@ -240,3 +240,17 @@ pnpm test:pwa
 ```
 
 The tests use a local static server and mocked APIs, with real browser service workers and IndexedDB. They cover offline reloads, new-list dependencies, dropped-response retries, stale-refresh races, revoked access, expired offline sessions, account isolation, fresh prices on reconnect, and sign-out cleanup.
+
+## Wishlist organization
+
+For an existing project, run **only** [`supabase/wishlist-usability.sql`](supabase/wishlist-usability.sql) once before deploying this update. Local permission tests do not apply it to your hosted database.
+
+- **Add a wish:** a name is enough. Product link and current USD price come first; store/shipping details, photos, and manufacturer MSRP can be expanded when needed.
+- **Saved search:** search names, variants, notes, gift preferences, and stores in one list or across your lists. Combine category, price range, priority, and status filters. Price filters exclude unknown prices.
+- **Quick edit:** change variant, saved store prices, notes, and gift preferences directly from a card. Metadata-only edits retain the last verified check; changed prices or variants become manual entries until checked again.
+- **Duplicates:** before creating a wish, matching product links (without common tracking parameters) or matching names and variants prompt you to keep an existing wish, copy it into another list, or explicitly add a separate wish. Variant parameters are retained; this is a warning, not guaranteed product identification.
+- **Move/copy:** select up to 50 wishes, or use item details. Moves require editing access to both lists and preserve IDs/history; copies need source read access and destination edit access. A copy starts active with saved manual offers, without inheriting verified observations. Transfers are atomic and copy retries use stable IDs.
+- **Gift details:** set “Really want” or “Just an idea,” and optional sizes, colors, alternatives, or things to avoid. These details appear in shared item views.
+- **Received/archive:** keep previous wishes and history, hide them from active/public wishlists, and pause daily checks. Use the status filter to find and restore them.
+
+Search/filtering and new manual wishes work offline from the account’s cache, including gift preferences and priority. Editing, status changes, moving, and copying saved wishes require syncing and reconnecting. Copying or moving changes who can read the wish according to the destination list’s access; account and family permissions themselves do not change.

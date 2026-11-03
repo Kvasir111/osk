@@ -4,7 +4,7 @@ import { createError, defineEventHandler, getRouterParam, readBody, readMultipar
 import { adminDatabase, dbResult, requireUser } from '../utils/database'
 import { searchProducts } from '../utils/product-search'
 import { refreshItem } from '../utils/refresh-prices'
-import { listSchema, productSchema, priceCheckSchema, publicUrl } from '../../shared/validation'
+import { listSchema, productSchema, priceCheckSchema, publicUrl, wishDetailsSchema, transferSchema } from '../../shared/validation'
 import { AVATAR_BUCKET, profileSchema, ownedAvatarPath } from '../../shared/profile'
 import { prepareAvatar, profileForUser } from '../utils/profiles'
 
@@ -22,6 +22,8 @@ import { createOfflineItem, createOfflineList } from '../utils/offline-create'
 import { stalledSearch } from '../../shared/search-progress'
 import { aiResearchEnabled } from '../utils/research-mode'
 import { scrapeProducts } from '../utils/product-scraper'
+import { priceEvidenceChanged } from '../../shared/wishes'
+import type { ProductDraft } from '../../shared/types'
 import { captureUrl } from '../../shared/capture'
 
 const uuid = z.string().uuid()
@@ -40,11 +42,11 @@ export default defineEventHandler(async event => {
       if (!list) throw createError({ statusCode: 404, statusMessage: 'This sharing link is unavailable.' })
       if (action === 'history') {
         const itemId = uuid.parse(path[3])
-        const item = dbResult(await admin.from('wish_items').select('id,name,variant').eq('id', itemId).eq('list_id', list.id).maybeSingle())
+        const item = dbResult(await admin.from('wish_items').select('id,name,variant').eq('id', itemId).eq('list_id', list.id).eq('status','active').maybeSingle())
         if (!item) throw createError({ statusCode: 404, statusMessage: 'Item not found.' })
         return itemHistory(admin, item)
       }
-      const items = dbResult(await admin.from('wish_items').select('*').eq('list_id', list.id).order('created_at', { ascending: false }))
+      const items = dbResult(await admin.from('wish_items').select('*').eq('list_id', list.id).eq('status','active').order('created_at', { ascending: false }))
       return { list, items }
     }
     const { db, user } = await requireUser(event)
@@ -198,6 +200,10 @@ export default defineEventHandler(async event => {
       }
       return { list_id: invite.list_id }
     }
+    if (resource === 'items' && id === 'transfer' && method === 'POST' && path.length === 2) {
+      const input = transferSchema.parse(await readBody(event))
+      return dbResult(await db.rpc('transfer_wishes', { target: input.target, mode: input.mode, entries: input.items }))
+    }
     if (resource === 'items' && id) {
       uuid.parse(id)
       if (method === 'GET' && action === 'history' && path.length === 3) {
@@ -210,14 +216,21 @@ export default defineEventHandler(async event => {
         if (!removed?.length) throw createError({ statusCode: 403, statusMessage: 'You cannot remove this item.' })
         return { ok: true }
       }
+      if (method === 'PATCH' && action === 'details' && path.length === 3) {
+        const input = wishDetailsSchema.strict().parse(await readBody(event))
+        const item = dbResult(await db.from('wish_items').update(input).eq('id',id).select('*').maybeSingle())
+        if (!item) throw createError({ statusCode:403, statusMessage:'Editing access is required.' })
+        return item
+      }
       if (method === 'PATCH' && path.length === 2) {
         const product=normalizePicture(productSchema.parse(await readBody(event)))
-        const previous=dbResult(await db.from('wish_items').select('name,variant').eq('id',id).maybeSingle())
+        const previous=dbResult(await db.from('wish_items').select('name,variant,offers,msrp_cents,msrp_source_url').eq('id',id).maybeSingle())
         if(!previous)throw createError({statusCode:404,statusMessage:'Item not found.'})
         if((product.image_mode||'auto')==='auto'&&(product.name!==previous.name||product.variant!==previous.variant)){
           product.image_url=null;product.image_source_url=null
         }
-        const item=dbResult(await writeItem(db,{...product,checked_at:null,last_attempt_at:null,refresh_status:'never'},id))
+        const pricesChanged = priceEvidenceChanged(previous as ProductDraft,product)
+        const item=dbResult(await writeItem(db,{...product,...(pricesChanged?{checked_at:null,last_attempt_at:null,refresh_status:'never'}:{})},id))
         if(item&&(item.image_mode||'auto')==='auto'&&!item.image_url)try{await dispatchItemPicture(adminDatabase(),item.id)}catch{console.warn('Optional product picture dispatch unavailable',{id:item.id})}
         return item
       }

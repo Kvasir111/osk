@@ -7,7 +7,12 @@ export interface Offer {
   availability: 'in_stock' | 'unknown'
   shipping_note: string
 }
+export type WishPriority = 'idea' | 'really_want'
+export type WishStatus = 'active' | 'received' | 'archived'
 export interface ProductDraft {
+  priority?: WishPriority
+  gift_preferences?: string
+  status?: WishStatus
   image_url?: string | null
   image_source_url?: string | null
   image_mode?: 'auto' | 'custom' | 'none'

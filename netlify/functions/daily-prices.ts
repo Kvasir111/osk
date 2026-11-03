@@ -9,7 +9,7 @@ export default async () => {
   const cutoff = new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z'
   let after = '00000000-0000-0000-0000-000000000000'
   for (;;) {
-    const { data, error } = await db.from('wish_items').select('id').gt('id', after)
+    const { data, error } = await db.from('wish_items').select('id').eq('status','active').gt('id', after)
       .or(`last_attempt_at.is.null,last_attempt_at.lt.${cutoff}`).order('id').limit(500)
     if (error) throw new Error('Could not read due items')
     if (!data.length) break

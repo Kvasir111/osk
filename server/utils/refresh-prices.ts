@@ -38,22 +38,24 @@ export async function refreshItem(db: SupabaseClient, itemId: string, cutoff: st
       : await scrapeProducts(savedProductUrls(item), item)
     const product = result.products.find(p => p.name === item.name && p.variant === item.variant)
     if (!product?.offers.length) throw new Error('No exact, sourced offers found')
-    const { error: saveError } = await db.from('wish_items').update({
+    const { data: saved, error: saveError } = await db.from('wish_items').update({
       price_check_details: checkDetails(item, result, product),
       offers: product.offers, checked_at: result.checked_at, refresh_status: 'ok',
       // Keep the original MSRP baseline once established.
       msrp_cents: item.msrp_cents ?? product.msrp_cents,
       msrp_source_url: item.msrp_source_url ?? product.msrp_source_url,
-    }).eq('id', itemId)
+    }).eq('id', itemId).eq('status','active').eq('last_attempt_at',item.last_attempt_at!).select('id')
     if (saveError) throw saveError
+    if (!saved?.length) return 'skipped'
     try{await fillItemPicture(db,itemId)}catch{/* A missing image must not fail a successful price check. */}
     return 'ok'
   } catch (error) {
-    const { error: saveError } = await db.from('wish_items').update({ refresh_status: 'failed', price_check_details: {
+    const { data: saved, error: saveError } = await db.from('wish_items').update({ refresh_status: 'failed', price_check_details: {
       warnings: result?.warnings?.length ? result.warnings : [error instanceof ProductPageError ? error.message : 'The latest check could not verify current prices for this exact variant. Previous offers were kept.'],
       retailer_checks: checkDetails(item, result).retailer_checks,
-    } }).eq('id', itemId)
+    } }).eq('id', itemId).eq('status','active').eq('last_attempt_at',item.last_attempt_at!).select('id')
     if (saveError) throw new Error('Could not record failed price check')
+    if (!saved?.length) return 'skipped'
     return 'failed'
   }
 }

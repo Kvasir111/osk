@@ -15,6 +15,7 @@ const notes = ref('')
 const category = ref('Other')
 const selected = ref([props.initialListId].filter(Boolean))
 const saved = ref<string[]>([])
+const batchWishIds = ref<string[]>([])
 const saving = ref(false)
 const error = ref('')
 const pending = computed(() => selected.value.filter(id => !saved.value.includes(id) && props.lists.some(l => l.id === id)))
@@ -41,7 +42,7 @@ function choosePhoto(event: Event) {
 function reset() {
   releasePhoto(); photoError.value = ''; error.value = ''
   name.value = ''; variant.value = ''; notes.value = ''; category.value = 'Other'
-  saved.value = []; selected.value = [props.initialListId].filter(Boolean)
+  saved.value = []; batchWishIds.value = []; selected.value = [props.initialListId].filter(Boolean)
 }
 async function add() {
   if (saving.value || !pending.value.length || !preview.value) return
@@ -52,7 +53,9 @@ async function add() {
   try {
     // Each confirmed save is kept on failure, so retrying only submits the remaining lists.
     for (const id of [...pending.value]) {
-      await store.saveItem(result.data, null, undefined, undefined, undefined, id)
+      const beforeIds = new Set(store.items.value.map(item => item.id))
+      await store.saveItem(result.data, null, undefined, undefined, undefined, id, batchWishIds.value)
+      batchWishIds.value.push(...store.items.value.filter(item => !beforeIds.has(item.id)).map(item => item.id))
       saved.value.push(id)
     }
     releasePhoto()

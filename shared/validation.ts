@@ -14,7 +14,17 @@ export const offerSchema = z.object({
   us_shipping: z.enum(['confirmed', 'unknown']),
   availability: z.enum(['in_stock', 'unknown']), shipping_note: z.string().max(500),
 })
+export const wishDetailsSchema = z.object({
+  priority: z.enum(['idea', 'really_want']).optional(),
+  gift_preferences: z.string().trim().max(1000).optional(),
+  status: z.enum(['active', 'received', 'archived']).optional(),
+})
+export const transferSchema = z.object({
+  target: z.string().uuid(), mode: z.enum(['move', 'copy']),
+  items: z.array(z.object({ id: z.string().uuid(), copy_id: z.string().uuid() })).min(1).max(50),
+}).refine(input => new Set(input.items.map(i => i.id)).size === input.items.length && new Set(input.items.map(i => i.copy_id)).size === input.items.length, 'Select each wish once')
 export const productSchema = z.object({
+  ...wishDetailsSchema.shape,
   image_url: imageUrl.nullable().optional(), image_source_url: publicUrl.nullable().optional(),
   image_mode: z.enum(['auto','custom','none']).optional(),
   name: z.string().trim().min(1).max(200), variant: z.string().max(200),

@@ -12,7 +12,8 @@ async function setup(page:Page){
  const lists:any[]=[{id:listId,owner_id:owner,name:'Saved wishes',description:'',occasion:'everyday',share_token:null,created_at:new Date().toISOString()}]
  const items:any[]=[]
  const posts:{account:string;id:string}[]=[]
- const state={dropResponse:false,reject:false,unauthorized:false,delayReads:false,releaseReads:[] as Array<() => void>}
+ const transfers:any[]=[]
+ const state={dropTransferResponse:false,dropResponse:false,reject:false,unauthorized:false,delayReads:false,releaseReads:[] as Array<() => void>}
  await page.addInitScript(value=>{
   if(!sessionStorage.getItem('qa-seeded')){localStorage.setItem('sb-qa-auth-token',JSON.stringify(value));sessionStorage.setItem('qa-seeded','1')}
  },session())
@@ -28,6 +29,16 @@ async function setup(page:Page){
    const input=request.postDataJSON();let list=lists.find(l=>l.id===input.client_id)
    if(!list){list={...input,id:input.client_id,owner_id:account,share_token:null,created_at:new Date().toISOString()};lists.push(list)}
    return route.fulfill({json:list})
+  }
+  if(path==='/api/items/transfer'&&request.method()==='POST'){
+   const input=request.postDataJSON();transfers.push(input)
+   const result=input.items.map((entry:any)=>{
+    let existing=items.find(i=>i.id===entry.copy_id)
+    if(!existing){existing={...items.find(i=>i.id===entry.id),id:entry.copy_id,list_id:input.target,status:'active',checked_at:null,last_attempt_at:null,refresh_status:'never'};items.push(existing)}
+    return existing
+   })
+   if(state.dropTransferResponse){state.dropTransferResponse=false;return route.abort('failed')}
+   return route.fulfill({json:result})
   }
   const match=path.match(/^\/api\/lists\/([^/]+)\/items$/)
   if(match&&request.method()==='GET'){
@@ -52,7 +63,7 @@ async function setup(page:Page){
  await page.waitForFunction(()=>new Promise(resolve=>{
   const r=indexedDB.open('osk-offline-v1',1);r.onsuccess=()=>{const db=r.result;const q=db.transaction('snapshots').objectStore('snapshots').get('10000000-0000-4000-8000-000000000001');q.onsuccess=()=>{resolve(!!q.result);db.close()}}
  }))
- return {lists,items,posts,state}
+ return {lists,items,posts,transfers,state}
 }
 async function addWish(page:Page,name:string){
  await page.getByRole('button',{name:'Add a wish',exact:true}).click()
@@ -296,4 +307,56 @@ test('an offline share opens capture, keeps its link and title, and syncs one ma
   expect(item.offers).toEqual([])
   expect(item.notes).toContain('https://shop.example.com/mug?color=blue')
   expect(data.posts).toHaveLength(1)
+})
+
+test('offline additions retain gift preferences and priority through reload and sync',async({page,context})=>{
+ const data=await setup(page)
+ await page.setViewportSize({width:390,height:844})
+ await context.setOffline(true)
+ await page.getByRole('button',{name:'Add a wish',exact:true}).click()
+ await page.getByLabel('Product name',{exact:true}).fill('Offline winter coat')
+ await page.getByLabel('How much would you love it?').selectOption('really_want')
+ await page.getByLabel('Gift preferences').fill('Large, forest green')
+ await page.getByRole('button',{name:'Add to wishlist',exact:true}).click()
+ await expect(page.getByRole('dialog')).toHaveCount(0)
+ const queued=await outbox(page)
+ expect(queued[0].product).toMatchObject({priority:'really_want',gift_preferences:'Large, forest green',status:'active'})
+ await page.reload()
+ await page.getByLabel('Search your saved wishes').fill('forest green')
+ await expect(page.locator('.product-card')).toContainText('Offline winter coat')
+ await expect(page.locator('.product-card')).toContainText('Really want')
+ await expect(page.getByRole('button',{name:'Quick edit Offline winter coat',exact:true})).toBeDisabled()
+ for(const colorScheme of ['light','dark'] as const){
+  await page.emulateMedia({colorScheme})
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+  await page.screenshot({path:`/tmp/osk-wishes-${colorScheme}.png`,fullPage:true,animations:'disabled'})
+ }
+ await context.setOffline(false)
+ await expect.poll(async()=> (await outbox(page)).length).toBe(0)
+ expect(data.items[0]).toMatchObject({name:'Offline winter coat',priority:'really_want',gift_preferences:'Large, forest green',status:'active'})
+})
+
+
+test('duplicate-copy approval reuses its ID after a lost response and keeps the draft available',async({page})=>{
+ const data=await setup(page)
+ const destination='20000000-0000-4000-8000-000000000002'
+ data.lists.push({...data.lists[0],id:destination,name:'Birthday'})
+ data.items.push({id:'30000000-0000-4000-8000-000000000001',list_id:listId,name:'A northern mug',variant:'',category:'Other',notes:'',offers:[],msrp_cents:null,msrp_source_url:null,created_at:new Date().toISOString(),checked_at:null,last_attempt_at:null,refresh_status:'never'})
+ await page.reload()
+ await page.getByRole('button',{name:/Birthday/}).click()
+ await page.getByRole('button',{name:'Add a wish',exact:true}).click()
+ await page.getByLabel('Product name',{exact:true}).fill('A northern mug')
+ data.state.dropTransferResponse=true
+ await page.getByRole('button',{name:'Add to wishlist',exact:true}).click()
+ await page.getByRole('button',{name:'Copy existing wish to this list',exact:true}).click()
+ await expect(page.getByRole('button',{name:'Add to wishlist',exact:true})).toBeEnabled()
+ expect(data.items.filter(i=>i.list_id===destination)).toHaveLength(1)
+ await expect(page.getByLabel('Product name',{exact:true})).toHaveValue('A northern mug')
+ await page.getByRole('button',{name:'Add to wishlist',exact:true}).click()
+ await page.getByRole('button',{name:'Copy existing wish to this list',exact:true}).click()
+ await expect(page.getByRole('dialog')).toHaveCount(0)
+ expect(data.transfers).toHaveLength(2)
+ expect(data.transfers[0].items).toEqual(data.transfers[1].items)
+ expect(data.items.filter(i=>i.list_id===destination)).toHaveLength(1)
+ await expect(page.locator('.product-card')).toContainText('A northern mug')
 })

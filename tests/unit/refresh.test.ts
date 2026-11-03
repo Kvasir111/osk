@@ -6,10 +6,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { ProductPageError } from '../../server/utils/product-page-errors'
 vi.mock('../../server/utils/product-search', () => ({ searchProducts: vi.fn() }))
 vi.mock('../../server/utils/product-scraper', async original => ({ ...await original<typeof import('../../server/utils/product-scraper')>(), scrapeProducts: vi.fn() }))
-const product = { name: 'Exact product', variant: 'Black', category: 'Tech', notes: '', msrp_cents: 10000, msrp_source_url: 'https://example.com/msrp', offers: [{ url: 'https://example.com/product' }] }
+const product = { last_attempt_at:'2026-11-03T12:00:00Z', name: 'Exact product', variant: 'Black', category: 'Tech', notes: '', msrp_cents: 10000, msrp_source_url: 'https://example.com/msrp', offers: [{ url: 'https://example.com/product' }] }
 const update = vi.fn()
-const db = { rpc: vi.fn(), from: vi.fn(() => ({ update: (data: unknown) => { update(data); return { eq: vi.fn().mockResolvedValue({ error: null }) } } })) } as unknown as SupabaseClient
-beforeEach(() => { vi.clearAllMocks(); vi.stubEnv('PRODUCT_RESEARCH_MODE','ai'); vi.mocked(db.rpc).mockResolvedValue({ data: [product], error: null } as any) })
+const select = vi.fn()
+const eq = vi.fn()
+const query = {eq,select}
+const db = { rpc: vi.fn(), from: vi.fn(() => ({ update: (data: unknown) => { update(data); return query } })) } as unknown as SupabaseClient
+beforeEach(() => { vi.clearAllMocks(); eq.mockReturnValue(query); select.mockResolvedValue({data:[{id:'id'}],error:null}); vi.stubEnv('PRODUCT_RESEARCH_MODE','ai'); vi.mocked(db.rpc).mockResolvedValue({ data: [product], error: null } as any) })
 afterEach(() => vi.unstubAllEnvs())
 describe('Daily refresh behavior', () => {
   it('uses scraping by default even with an existing OpenAI key', async () => {
@@ -57,6 +60,13 @@ describe('Daily refresh behavior', () => {
     expect(await refreshItem(db, 'id', 'cutoff')).toBe('ok')
     expect(searchProducts).toHaveBeenCalledWith(expect.stringContaining(amazon), expect.anything())
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ price_check_details: expect.objectContaining({ retailer_checks: expect.arrayContaining([expect.objectContaining({ retailer: 'Amazon', url: amazon })]) }) }))
+  })
+  it('does not overwrite a newer manual edit or an archived wish after fetching', async () => {
+    vi.mocked(searchProducts).mockResolvedValue({ products:[product], checked_at:'now', sources:[], summary:'' } as any)
+    select.mockResolvedValue({data:[],error:null})
+    expect(await refreshItem(db,'id','cutoff')).toBe('skipped')
+    expect(eq).toHaveBeenCalledWith('last_attempt_at',product.last_attempt_at)
+    expect(eq).toHaveBeenCalledWith('status','active')
   })
   it('skips already-leased items without making an OpenAI call', async () => {
     vi.mocked(db.rpc).mockResolvedValue({ data: [], error: null } as any)

@@ -25,6 +25,7 @@ beforeAll(async () => {
   await db.exec(await readFile(new URL('../../supabase/item-pictures.sql', import.meta.url), 'utf8'))
   await db.exec(await readFile(new URL('../../supabase/account-invitations.sql', import.meta.url), 'utf8'))
   await db.exec(await readFile(new URL('../../supabase/secret-santa.sql', import.meta.url), 'utf8'))
+  await db.exec(await readFile(new URL('../../supabase/wishlist-usability.sql', import.meta.url), 'utf8'))
   await db.exec(`insert into auth.users values ('${owner}'),('${editor}'),('${viewer}'),('${outsider}');
     insert into public.wish_lists(id,owner_id,name) values('${list}','${owner}','Christmas');
     insert into public.list_members values('${list}','${editor}','editor'),('${list}','${viewer}','viewer');
@@ -338,5 +339,83 @@ describe('Secret Santa privacy and transactional writes', () => {
     await db.exec(`delete from families where id='${santaFamily}'`)
     expect((await db.query('select * from santa_events')).rows).toHaveLength(0)
     expect((await db.query('select * from santa_assignments')).rows).toHaveLength(0)
+  })
+})
+
+describe('Wishlist organization', () => {
+  const destination = '20000000-0000-0000-0000-000000000002'
+  const copyId = '30000000-0000-0000-0000-000000000002'
+  async function destinationList() {
+    await db.exec(`insert into public.wish_lists(id,owner_id,name) values('${destination}','${editor}','Birthday')`)
+  }
+  const transfer = (mode='move', entries=[{id:item,copy_id:copyId}]) => db.query<{id:string;list_id:string;checked_at:string|null}>(
+    'select * from public.transfer_wishes($1,$2,$3)', [destination,mode,JSON.stringify(entries)])
+  it('lets editors update preferences and archive without changing price evidence', async () => {
+    await db.exec(`update wish_items set checked_at=now(),offers='[{"retailer":"Store","url":"https://example.com/item","price_cents":500}]' where id='${item}'`)
+    const before = await db.query('select * from price_observations')
+    await asUser(editor)
+    await db.exec(`update wish_items set priority='really_want',gift_preferences='Size large; blue',status='received' where id='${item}'`)
+    expect((await db.query('select * from price_observations')).rows).toEqual(before.rows)
+    await asUser(viewer)
+    expect((await db.query(`update wish_items set status='active' where id='${item}' returning id`)).rows).toEqual([])
+  })
+  it('moves atomically with history intact and checks both lists', async () => {
+    await destinationList()
+    await db.exec(`update wish_items set offers='[{"retailer":"Store","url":"https://example.com/item","price_cents":500}]' where id='${item}'`)
+    await asUser(editor)
+    const result = await transfer()
+    expect(result.rows[0]?.list_id).toBe(destination)
+    expect((await db.query(`select item_id from price_observations where item_id='${item}'`)).rows).toHaveLength(1)
+    await asUser(owner)
+    expect((await db.query(`select * from wish_items where id='${item}'`)).rows).toHaveLength(0)
+    expect((await db.query('select * from price_observations')).rows).toHaveLength(0)
+  })
+  it('copies a readable wish but never claims a fresh verified check, and retries preserve edits', async () => {
+    await destinationList()
+    await db.exec(`update wish_items set checked_at=now(),offers='[{"retailer":"Store","url":"https://example.com/item","price_cents":500}]',priority='really_want',gift_preferences='Blue' where id='${item}'`)
+    await asUser(editor)
+    const result = await transfer('copy')
+    expect(result.rows[0]?.id).toBe(copyId)
+    expect(result.rows[0]?.checked_at).toBeNull()
+    await db.exec(`update wish_items set notes='Later edit' where id='${copyId}'`)
+    await transfer('copy')
+    expect((await db.query<{notes:string}>(`select notes from wish_items where id='${copyId}'`)).rows[0]?.notes).toBe('Later edit')
+    expect((await db.query<{source:string}>(`select source from price_observations where item_id='${copyId}'`)).rows.map(r=>r.source)).toEqual(['manual'])
+  })
+  it('rolls back the whole batch if any source is unavailable', async () => {
+    await destinationList(); await asUser(editor)
+    await db.exec('savepoint batch')
+    await expect(transfer('move',[{id:item,copy_id:copyId},{id:'30000000-0000-0000-0000-000000000099',copy_id:'30000000-0000-0000-0000-000000000098'}])).rejects.toThrow(/Access to a source/)
+    await db.exec('rollback to savepoint batch')
+    expect((await db.query<{list_id:string}>(`select list_id from wish_items where id='${item}'`)).rows[0]?.list_id).toBe(list)
+  })
+  it('blocks viewer moves, outsider copies, anonymous calls and direct list reassignment', async () => {
+    await destinationList()
+    await db.exec(`insert into list_members values('${destination}','${viewer}','editor'),('${destination}','${outsider}','editor')`)
+    await asUser(viewer)
+    await db.exec('savepoint access')
+    await expect(transfer()).rejects.toThrow(/Access to a source/)
+    await db.exec('rollback to savepoint access')
+    // Read access is enough for copying into a list this viewer can edit.
+    expect((await transfer('copy')).rows[0]?.id).toBe(copyId)
+    await asUser(outsider)
+    await db.exec('savepoint outside')
+    await expect(transfer('copy')).rejects.toThrow(/Access to a source/)
+    await db.exec('rollback to savepoint outside')
+    await asUser(editor)
+    await denied(`update wish_items set list_id='${destination}' where id='${item}'`)
+    await asUser(owner)
+    await db.exec('savepoint dest')
+    await expect(transfer()).rejects.toThrow(/destination/)
+    await db.exec('rollback to savepoint dest')
+    await asUser('', 'anon')
+    await denied(`select public.transfer_wishes('${destination}','move','[]')`)
+  })
+  it('does not claim archived or received wishes for daily checks', async () => {
+    await asUser(owner, 'service_role')
+    for (const status of ['archived','received']) {
+      await db.exec(`update wish_items set status='${status}' where id='${item}'`)
+      expect((await db.query(`select * from claim_price_check('${item}',now())`)).rows).toHaveLength(0)
+    }
   })
 })
