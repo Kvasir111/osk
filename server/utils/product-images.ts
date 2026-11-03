@@ -4,6 +4,7 @@ import { BlockList,isIP,type LookupFunction } from 'node:net'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ProductDraft,WishItem } from '../../shared/types'
 import { imageUrl,publicUrl } from '../../shared/validation'
+import { ProductPageError } from './product-page-errors'
 
 const blocked4=new BlockList()
 for(const [address,prefix] of [['0.0.0.0',8],['10.0.0.0',8],['100.64.0.0',10],['127.0.0.0',8],['169.254.0.0',16],['172.16.0.0',12],['192.0.0.0',24],['192.0.2.0',24],['192.88.99.0',24],['192.168.0.0',16],['198.18.0.0',15],['198.51.100.0',24],['203.0.113.0',24],['224.0.0.0',4],['240.0.0.0',4]] as const)blocked4.addSubnet(address,prefix,'ipv4')
@@ -21,9 +22,9 @@ const safeLookup:LookupFunction=(hostname,options,callback)=>{
   }).catch(error=>callback(error,'',4))
 }
 export async function fetchProductPage(value:string,signal:AbortSignal,redirects=0):Promise<{html:string;url:string}> {
-  if(!publicUrl.safeParse(value).success||redirects>2)throw new Error('Invalid product page')
+  if(!publicUrl.safeParse(value).success||redirects>2)throw new ProductPageError('invalid')
   const url=new URL(value)
-  if(url.port&&url.port!=='443')throw new Error('Invalid HTTPS port')
+  if(url.port&&url.port!=='443')throw new ProductPageError('invalid')
   return new Promise((resolve,reject)=>{
     const req=request(url,{method:'GET',agent:false,lookup:safeLookup,signal,headers:{'User-Agent':'Osk/1.0 (product details and price checks)','Accept':'text/html,application/xhtml+xml','Accept-Encoding':'identity'}},response=>{
       if([301,302,303,307,308].includes(response.statusCode||0)&&response.headers.location){
@@ -31,7 +32,8 @@ export async function fetchProductPage(value:string,signal:AbortSignal,redirects
         void fetchProductPage(new URL(response.headers.location,url).href,signal,redirects+1).then(resolve,reject);return
       }
       if(response.statusCode!==200||!/^(text\/html|application\/xhtml\+xml)(?:;|$)/i.test(response.headers['content-type']||'')||response.headers['content-encoding']){
-        response.destroy();reject(new Error('No readable product page'));return
+        const status=response.statusCode
+        response.destroy();reject(new ProductPageError(status===401||status===403?'blocked':status===404||status===410?'unavailable':'response'));return
       }
       const chunks:Buffer[]=[];let bytes=0
       response.on('data',(chunk:Buffer)=>{

@@ -2,6 +2,7 @@ import type { Offer, ProductDraft, SearchResult, WishItem } from '../../shared/t
 import { imageUrl, productSchema, publicUrl } from '../../shared/validation'
 import { captureUrl } from '../../shared/capture'
 import { attributes, decode, extractProductImage, fetchProductPage } from './product-images'
+import { ProductPageError, productPageFailure } from './product-page-errors'
 
 type Node = Record<string, any>
 const text = (value: unknown, limit = 200) => typeof value === 'string' ? decode(value.replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim().slice(0, limit) : ''
@@ -24,6 +25,19 @@ function samePage(a: string, b: string) {
   const first = new URL(a), second = new URL(b)
   return first.origin === second.origin && first.pathname.replace(/\/$/, '') === second.pathname.replace(/\/$/, '')
 }
+function confirmsListing(node: Node, pageUrl: string) {
+  const declared = link(node.url || node['@id'], pageUrl)
+  if (!declared) return false
+  if (sameListing(declared, pageUrl)) return true
+  const page = new URL(pageUrl), canonical = new URL(declared)
+  // Rogue omits ?sku= for its default SKU even on a selected page. Require the exact
+  // SKU in structured data, no other configuration selectors, and a same-page canonical URL.
+  if (!/^(?:www\.)?roguefitness\.com$/.test(page.hostname) || !samePage(declared, pageUrl)) return false
+  const keys = [...page.searchParams.keys()].filter(key => !/^(utm_|ref$|tag$|fbclid$|gclid$)/i.test(key))
+  canonical.search = ''
+  return keys.length === 1 && keys[0] === 'sku' && sameListing(declared, canonical.href)
+    && !!text(node.sku) && text(node.sku).toLowerCase() === page.searchParams.get('sku')?.toLowerCase()
+}
 export function priceCents(value: unknown): number | null {
   const raw = typeof value === 'number' ? String(value) : typeof value === 'string' ? value.trim() : ''
   if (!/^\d+(?:\.\d{1,2})?$/.test(raw)) return null
@@ -40,7 +54,7 @@ function identityMatches(expected: ProductDraft, name: string, variant: string) 
 
 export function parseProductPage(html: string, pageUrl: string, expected?: ProductDraft): { product: ProductDraft; warnings: string[]; variants?: SearchResult['variants'] } {
   const page = new URL(pageUrl)
-  if (/\/(?:search|browse|categories|category|collections)(?:\/|$)/i.test(page.pathname)) throw new Error('Use an individual product page.')
+  if (/\/(?:search|browse|categories|category|collections)(?:\/|$)/i.test(page.pathname)) throw new ProductPageError('invalid')
   const meta = new Map<string, string>()
   for (const tag of html.match(/<meta\b[^>]*>/gi) || []) {
     const attr = attributes(tag), key = (attr.property || attr.name || '').toLowerCase()
@@ -61,16 +75,13 @@ export function parseProductPage(html: string, pageUrl: string, expected?: Produ
     if (attributes(script[1] || '').type?.toLowerCase() !== 'application/ld+json') continue
     try { walk(JSON.parse(script[2]!)) } catch { /* Malformed publisher metadata is optional. */ }
   }
-  const exact = products.filter(product => {
-    const url = link(product.url || product['@id'], pageUrl)
-    return url && sameListing(url, pageUrl)
-  })
+  const exact = products.filter(product => confirmsListing(product, pageUrl))
   const matchingGroups = groups.filter(group => {
     const url = link(group.url || group['@id'], pageUrl)
     return url && samePage(url, pageUrl)
   })
   const group = matchingGroups.length === 1 ? matchingGroups[0]! : null
-  if (products.length > 1 && exact.length !== 1 && !group) throw new Error('The page contains multiple products or variants. Enter the selected variant manually.')
+  if (products.length > 1 && exact.length !== 1 && !group) throw new ProductPageError('ambiguous')
   // A group is a template, not an exact purchasable configuration. Never import its price or default color.
   const grouped = !!group && exact.length !== 1
   const node = exact.length === 1 ? exact[0]! : grouped ? group : products.length === 1 ? products[0]! : null
@@ -83,14 +94,15 @@ export function parseProductPage(html: string, pageUrl: string, expected?: Produ
     if (label) variants.push({ label, url })
   }
   const pageTitle = text(meta.get('og:title') || html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1])
-  if (!node && meta.get('og:type') !== 'product') throw new Error('No unambiguous product metadata was found. Enter the details manually.')
+  if (/captcha|access denied|just a moment|robot check/i.test(pageTitle)) throw new ProductPageError('blocked')
+  if (!node && meta.get('og:type') !== 'product') throw new ProductPageError('metadata')
   const name = text(node?.name) || pageTitle
-  if (!name || /captcha|access denied|just a moment|robot check/i.test(name)) throw new Error('This store blocked the listing. Enter details manually.')
+  if (!name || /captcha|access denied|just a moment|robot check/i.test(name)) throw new ProductPageError('blocked')
   const variant = node && !grouped ? [...new Set([text(node.color), text(typeof node.size === 'string' ? node.size : node.size?.name), text(node.model)].filter(Boolean))].join(' · ').slice(0, 200) : ''
-  if (expected && !identityMatches(expected, name, variant)) throw new Error('The page did not confirm the saved product and variant.')
+  if (expected && !identityMatches(expected, name, variant)) throw new ProductPageError('identity')
   const declared = node && link(node.url || node['@id'], pageUrl)
-  if (declared && (new URL(declared).origin !== page.origin || new URL(declared).pathname.replace(/\/$/,'') !== page.pathname.replace(/\/$/,''))) throw new Error('The metadata describes another product page.')
-  const selectedVariant = !grouped && (!page.search || !!declared && sameListing(declared, pageUrl))
+  if (declared && !samePage(declared, pageUrl)) throw new ProductPageError('identity')
+  const selectedVariant = !grouped && (!page.search || !!node && confirmsListing(node, pageUrl))
   const warnings: string[] = []
   if (grouped) warnings.push('This page describes multiple options or configurations. Choose an exact option to read its price, or save the general item without a price. Further customization may change the total.')
   else if (!selectedVariant) warnings.push('The selected URL variant was not confirmed in the page metadata. No price was imported.')
@@ -141,7 +153,7 @@ export function savedProductUrls(item: WishItem) {
 
 export async function scrapeProducts(urls: string[], expected?: ProductDraft, reader = fetchProductPage): Promise<SearchResult> {
   const unique = [...new Set(urls)].filter(url => publicUrl.safeParse(url).success).slice(0, 10)
-  if (!unique.length) throw new Error('Paste a public HTTPS product link, or add the item manually.')
+  if (!unique.length) throw new ProductPageError('no_links')
   const signal = AbortSignal.timeout(8000)
   const findings: ReturnType<typeof parseProductPage>[] = []
   const checks: NonNullable<SearchResult['retailer_checks']> = []
@@ -155,11 +167,11 @@ export async function scrapeProducts(urls: string[], expected?: ProductDraft, re
       try {
         const page = await reader(url, signal)
         // A redirect to a different product must not silently change what is being tracked.
-        if (expected && !sameListing(url, page.url)) throw new Error('The saved listing redirected to another URL.')
+        if (expected && !sameListing(url, page.url)) throw new ProductPageError('redirected')
         const result = parseProductPage(page.html, page.url, expected)
         findings.push(result); sources.push({ title: result.product.name, url: page.url })
         if (!result.product.offers.length) checks.push({ retailer: new URL(url).hostname, url, note: result.warnings.join(' ').slice(0,600) })
-      } catch { checks.push({ retailer: new URL(url).hostname, url, note: 'The listing was blocked, unavailable, or did not establish the exact product and price. Enter details manually if needed.' }) }
+      } catch (error) { checks.push({ retailer: new URL(url).hostname, url, note: productPageFailure(error) }) }
     }
   }))
   const base = findings[0]?.product

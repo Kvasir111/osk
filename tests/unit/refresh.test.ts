@@ -3,6 +3,7 @@ import { refreshItem } from '../../server/utils/refresh-prices'
 import { searchProducts } from '../../server/utils/product-search'
 import { scrapeProducts } from '../../server/utils/product-scraper'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { ProductPageError } from '../../server/utils/product-page-errors'
 vi.mock('../../server/utils/product-search', () => ({ searchProducts: vi.fn() }))
 vi.mock('../../server/utils/product-scraper', async original => ({ ...await original<typeof import('../../server/utils/product-scraper')>(), scrapeProducts: vi.fn() }))
 const product = { name: 'Exact product', variant: 'Black', category: 'Tech', notes: '', msrp_cents: 10000, msrp_source_url: 'https://example.com/msrp', offers: [{ url: 'https://example.com/product' }] }
@@ -23,6 +24,14 @@ describe('Daily refresh behavior', () => {
     vi.stubEnv('PRODUCT_RESEARCH_MODE', 'scrape')
     vi.mocked(scrapeProducts).mockResolvedValue({ products: [], checked_at: 'now', sources: [], summary: '', warnings: ['Page blocked'], retailer_checks: [] })
     expect(await refreshItem(db, 'id', 'cutoff')).toBe('failed')
+    expect(update.mock.calls[0]![0]).not.toHaveProperty('offers')
+    expect(searchProducts).not.toHaveBeenCalled()
+  })
+  it('explains missing links without discarding manually entered prices', async () => {
+    vi.stubEnv('PRODUCT_RESEARCH_MODE', 'scrape')
+    vi.mocked(scrapeProducts).mockRejectedValue(new ProductPageError('no_links'))
+    expect(await refreshItem(db, 'id', 'cutoff')).toBe('failed')
+    expect(update.mock.calls[0]![0].price_check_details.warnings[0]).toContain('Add a store')
     expect(update.mock.calls[0]![0]).not.toHaveProperty('offers')
     expect(searchProducts).not.toHaveBeenCalled()
   })

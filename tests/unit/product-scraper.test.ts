@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { parseProductPage, priceCents, savedProductUrls, scrapeProducts } from '../../server/utils/product-scraper'
 import type { WishItem } from '../../shared/types'
+import { ProductPageError, productPageFailure } from '../../server/utils/product-page-errors'
 const url = 'https://shop.example.com/mug'
 const node = { '@type': 'Product', name: 'Ceramic mug', color: 'Blue', url, image: 'https://shop.example.com/mug.jpg', offers: { '@type': 'Offer', price: '19.99', priceCurrency: 'USD', availability: 'https://schema.org/InStock', url } }
 const html = (value: unknown) => `<title>Ceramic mug Blue</title><script type="application/ld+json">${JSON.stringify(value)}</script>`
@@ -83,6 +84,29 @@ describe('Direct product-page metadata', () => {
     const reader = vi.fn().mockResolvedValue({ html: html(group), url: base })
     expect((await scrapeProducts([base], undefined, reader)).variants).toEqual(found.variants)
     expect(reader).toHaveBeenCalledTimes(1)
+  })
+  it('confirms Rogue default SKU metadata without accepting another color or configuration', () => {
+    const base = 'https://www.roguefitness.com/rogue-ohio-lifting-straps'
+    const selected = base + '?sku=RA0740'
+    const black = { ...node, name: 'Rogue Ohio Lifting Straps - Black', color: 'Black', sku: 'RA0740', url: base, offers: [{ ...node.offers, url: undefined, price: '15' }] }
+    expect(parseProductPage(html(black), selected).product.offers[0]).toMatchObject({ url: selected, price_cents: 1500 })
+    expect(parseProductPage(html(black), selected + '&utm_source=test').product.offers).toHaveLength(1)
+    for (const query of ['?sku=SH0021-Red', '?sku=RA0740&b=another', '?sku=RA0740&sku=SH0021-Red']) {
+      expect(parseProductPage(html(black), base + query).product.offers).toEqual([])
+    }
+    expect(() => parseProductPage(html(black), selected, { ...expected, name: 'Rogue Ohio Lifting Straps', variant: 'Red' })).toThrow('variant')
+    expect(parseProductPage(html({ ...node, sku: 'RA0740' }), url + '?sku=RA0740').product.offers).toEqual([])
+  })
+  it('preserves useful failure reasons without exposing raw network errors', async () => {
+    const found = await scrapeProducts([url], { ...expected, variant: 'Red' }, vi.fn().mockResolvedValue({ html: html(node), url }))
+    expect(found.retailer_checks?.[0]?.note).toContain('name and variant')
+    for (const reason of ['blocked', 'unavailable', 'metadata', 'redirected'] as const) {
+      const result = await scrapeProducts([url], expected, vi.fn().mockRejectedValue(new ProductPageError(reason)))
+      expect(result.retailer_checks?.[0]?.note).toBe(productPageFailure(new ProductPageError(reason)))
+    }
+    expect(productPageFailure(new DOMException('unsafe detail', 'AbortError'))).toContain('time limit')
+    expect(productPageFailure(new Error('credential or internal hostname'))).not.toMatch(/credential|internal hostname/)
+    expect(() => parseProductPage('<title>Robot Check</title>', url)).toThrow('blocked automated access')
   })
   it('only accepts bounded, exact positive cents', () => {
     for (const value of ['19,99', '$19.99', '1e3', '19.999', '-1', '0', '1000000.01']) expect(priceCents(value)).toBeNull()

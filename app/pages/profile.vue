@@ -44,6 +44,11 @@ async function choosePhoto(event: Event) {
       <p v-if="error" class="error-message" role="alert">{{ error }}</p>
       <p v-if="message" class="success-message" role="status">{{ message }}</p>
     </section>
+    <section v-if="!demo && user" class="profile-card" aria-label="Password settings">
+      <h2>Set or change your password</h2>
+      <p class="field-note">Use your email and a password to sign in next time. Email sign-in links remain available.</p>
+      <AccountPassword />
+    </section>
     <button v-if="!demo" class="text-button profile-signout" @click="signOut"><WishIcon name="logout" :size="16" />Sign out</button>
   </main>
 </template>

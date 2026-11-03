@@ -65,7 +65,7 @@ async function refresh(id: string) {
     const result = await api<{ status: string }>(`/api/items/${id}/refresh`, { method: 'POST' })
     await store.load()
     if (selected.value?.id === id) selected.value = store.items.value.find(i => i.id === id)
-    notify(result.status === 'failed' ? 'No reliable update found. Previous prices kept.' : result.status === 'skipped' ? 'This item was checked recently. Try again in a few minutes.' : 'Prices refreshed.')
+    notify(result.status === 'failed' ? 'Price check failed. Open the item for details; previous prices kept.' : result.status === 'skipped' ? 'This item was checked recently. Try again in a few minutes.' : 'Prices refreshed.')
   } catch (e: any) { error.value = e.data?.statusMessage || 'The price check could not finish.' }
   finally { refreshing.value = refreshing.value.filter(item => item !== id) }
 }

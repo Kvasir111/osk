@@ -6,6 +6,7 @@ import { publicUrl } from '../../shared/validation'
 import { retailerDomain } from '../../shared/retailers'
 import { aiResearchEnabled } from './research-mode'
 import { scrapeProducts, savedProductUrls } from './product-scraper'
+import { ProductPageError } from './product-page-errors'
 
 function savedListings(item: WishItem) {
   return [...item.offers.map(o => ({ retailer: o.retailer, url: o.url })), ...(item.price_check_details?.retailer_checks || [])]
@@ -47,9 +48,9 @@ export async function refreshItem(db: SupabaseClient, itemId: string, cutoff: st
     if (saveError) throw saveError
     try{await fillItemPicture(db,itemId)}catch{/* A missing image must not fail a successful price check. */}
     return 'ok'
-  } catch {
+  } catch (error) {
     const { error: saveError } = await db.from('wish_items').update({ refresh_status: 'failed', price_check_details: {
-      warnings: result?.warnings?.length ? result.warnings : ['The latest check could not verify current prices for this exact variant. Previous offers were kept.'],
+      warnings: result?.warnings?.length ? result.warnings : [error instanceof ProductPageError ? error.message : 'The latest check could not verify current prices for this exact variant. Previous offers were kept.'],
       retailer_checks: checkDetails(item, result).retailer_checks,
     } }).eq('id', itemId)
     if (saveError) throw new Error('Could not record failed price check')

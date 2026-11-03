@@ -240,7 +240,9 @@ h1 em { font-weight: 400; font-style: normal; color: var(--osk-text-muted); }
 .profile-heading p { color: var(--osk-text-muted); font-size: 13px; line-height: 1.8; margin: 0; }
 .profile-card { border: 1px solid var(--osk-border); border-radius: 8px; padding: 32px; background: var(--osk-surface); display: flex; flex-direction: column; gap: 24px; }
 .profile-card h2 { font-size: 19px; font-weight: 500; margin: 0; }
-.profile-picture-row { display: flex; align-items: center; gap: 24px; padding: 0 0 25px; border-bottom: 1px solid var(--osk-border); }
+.profile-card + .profile-card { margin-top: 24px; }
+.profile-picture-row { position: relative; display: flex; align-items: center; gap: 24px; padding: 0 0 25px; border-bottom: 1px solid var(--osk-border); }
+.profile-picture-row > input[type="file"] { left: 0; top: 0; }
 .profile-picture-row h3 { font-size: 13px; font-weight: 500; margin: 0 0 12px; }
 .profile-photo-actions { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; margin-bottom: 10px; }
 .profile-save { align-self: flex-start; min-width: 150px; margin-top: 5px; }

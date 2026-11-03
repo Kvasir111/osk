@@ -19,6 +19,7 @@ const deleting = ref(false)
     <p v-if="discount" class="savings-note">A little patience pays off. {{ money(discount.cents) }} below MSRP.</p>
     <PriceHistory :item="item" :demo="demo" :share-token="shareToken" />
     <PriceCheckStatus :item="item" :demo="demo" />
+    <p v-if="editable && !demo && item.refresh_status === 'failed'" class="note-box">Use Edit item to correct the product name, exact variant, or store links shown above. If a store blocks automated checks, keep its price manual or add a link from another store.</p>
     <div class="section-label"><span>{{ sorted.length }} STORE {{ sorted.length === 1 ? 'OFFER' : 'OFFERS' }}</span><span>USD · BEFORE TAX & SHIPPING</span></div>
     <p v-if="!sorted.length" class="empty-inline">No prices yet. Add a store or check again later.</p>
     <a v-for="(offer, index) in sorted" :key="offer.url + index" :href="offer.url" target="_blank" rel="noopener noreferrer" class="store-offer">

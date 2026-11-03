@@ -6,6 +6,14 @@ Save products from any store, organize occasion lists, compare offers with manuf
 
 The Dark mode toggle is available on every page. The initial theme follows the device and updates with it until a light/dark choice is saved in this browser. A saved choice also applies to shared lists, sign-in, and dialogs, and is applied before the page paints.
 
+## Sign-in and passwords
+
+Invited accounts can sign in using **email and password**, or choose **Use an email sign-in link** as a fallback. Existing users and new invitees can open **Edit profile → Set or change your password** after verifying their invitation/sign-in link. Choose a unique password of at least 12 characters. Passwords are submitted directly to Supabase Auth, never the app API, wishlist/profile tables, offline outbox, or analytics. No public signup is added.
+
+**Set or reset your password** on `/login` sends a recovery email for an existing account with a generic confirmation message. Its callback uses the current origin’s `/login?mode=recovery` and preserves allowed invitation/capture return paths. The app holds recovery sessions on the password form rather than redirecting them to the wishlist, and removes callback tokens from the URL. Expired/invalid links offer a fresh request. Setting a password keeps the account’s existing lists, profile, and offline additions.
+
+Keep the Supabase **Email** provider enabled and public signup disabled. Ensure the existing redirect allowlist covers `/login` **including query parameters** on the deployed origin and development origin, such as `https://your-app.example/login**` and `http://localhost:3000/login**`; the exact `/login` entry alone may not cover recovery/invitation callbacks. Set the server’s minimum password length to 12 or stronger if desired; stricter provider requirements are honored. Secure-password-change settings may require a fresh recovery email. Recovery delivery uses your Supabase SMTP configuration. Optional branded **Reset Password** email HTML is in [`supabase/email-templates`](supabase/email-templates/README.md); files and a Netlify deployment do not apply dashboard templates or Auth settings. No SQL migration, new keys, or new environment variables are required.
+
 ## Profiles
 
 Open **Edit profile** from your name/avatar in the wishlist sidebar to set your name and upload, replace, or remove your profile picture. The account link and list-owner collaborator view use these details. The name is display metadata; authorization continues to use verified user IDs, never profile fields.
@@ -58,6 +66,10 @@ ProductGroup pages (including Rogue colors and rack configurations) can be saved
 Daily checks revisit up to ten saved priced/unpriced listing URLs, including a captured link in notes, with three concurrent requests and an eight-second lookup budget. They do not discover other stores automatically. Add other retailer URLs through item editing for comparison; price is optional, and unpriced URLs stay in notes for the next check. Fully failed checks keep previous prices; partial checks publish only newly verified offers and retain missing listing URLs in diagnostics. MSRP stays unknown unless the manufacturer is identified and explicitly publishes MSRP; existing baselines stay fixed. History records observations, not reconstructed sale prices. The existing 20-per-account daily lookup budget still applies to interactive checks.
 
 No schema migration is required. No scraper API, paid search service, or headless browser is added.
+
+If a refresh fails, open the item’s **Price check status** for each listing’s reason: blocked access, unavailable page, missing metadata, timeout, redirect, or an unconfirmed product/variant. Review the saved name, variant, and exact SKU/configuration links in **Edit item**; a red item linked to a black SKU cannot be verified. Pages that omit the saved color/size and group pages without a selected configuration cannot supply an exact price. Store blocks remain a manual-price/alternate-link fallback. Failure reasons update on the next check after deployment; old generic diagnostics are not rewritten.
+
+To enter a price manually, use **Store offers → Price in USD** (choose **Add a store** if needed). This is the current price shown on the wishlist card. Optional manufacturer MSRP is a separate comparison baseline; entering MSRP alone does not create a store offer, and the form explains that the current price will remain unknown. Manual prices are saved in cents and do not count as verified sale history.
 
 ## Retained OpenAI agent (disabled by default)
 
