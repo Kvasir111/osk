@@ -29,17 +29,43 @@ const ASSETS = ${JSON.stringify(urls)};
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS.map(url => new Request(url, {cache:'reload', credentials:'omit'})))));
 });
+async function pruneShellCaches(ignoredClients = []) {
+  const windows = await self.clients.matchAll({type:'window', includeUncontrolled:true});
+  if(windows.some(client => !ignoredClients.includes(client.id))) return;
+  const keys = await caches.keys();
+  // CacheStorage preserves creation order. Never delete a newer cache being installed by a waiting worker.
+  const current = keys.indexOf(CACHE);
+  if(current < 0) return;
+  await Promise.all(keys.slice(0, current).filter(key => key.startsWith('osk-shell-')).map(key => caches.delete(key)));
+}
 self.addEventListener('activate', event => {
-  event.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(key => key.startsWith('osk-shell-') && key !== CACHE).map(key => caches.delete(key)))).then(() => self.clients.claim()));
+  // Other tabs may still use old chunks or have unfinished forms. Retain their shell assets.
+  event.waitUntil(pruneShellCaches().then(() => self.clients.claim()));
+});
+self.addEventListener('message', event => {
+  if(event.data?.type === 'OSK_ACTIVATE_UPDATE' && event.source?.url && new URL(event.source.url).origin === self.location.origin) event.waitUntil(self.skipWaiting());
 });
 self.addEventListener('fetch', event => {
   const request = event.request;
   const url = new URL(request.url);
   if(request.method !== 'GET' || url.origin !== self.location.origin || request.headers.has('authorization') || url.pathname.startsWith('/api/') || url.pathname.startsWith('/.netlify/')) return;
   if(request.mode === 'navigate' && !/\\.[^/]+$/.test(url.pathname)) {
+    // A full navigation replacing the last app window can retire old public shells safely.
+    event.waitUntil(pruneShellCaches([event.replacesClientId, event.resultingClientId].filter(Boolean)));
     event.respondWith(caches.open(CACHE).then(cache => cache.match('/index.html')).then(response => response || fetch(request)));
-  } else if(ASSETS.includes(url.pathname)) {
-    event.respondWith(caches.open(CACHE).then(cache => cache.match(url.pathname)).then(response => response || fetch(request)));
+  } else if(ASSETS.includes(url.pathname) || url.pathname.startsWith('/_nuxt/')) {
+    event.respondWith((async () => {
+      const current = await caches.open(CACHE).then(cache => cache.match(url.pathname));
+      if(current) return current;
+      if(url.pathname.startsWith('/_nuxt/')) {
+        for(const key of await caches.keys()) {
+          if(!key.startsWith('osk-shell-') || key === CACHE) continue;
+          const old = await caches.open(key).then(cache => cache.match(url.pathname));
+          if(old) return old;
+        }
+      }
+      return fetch(request);
+    })());
   }
 });
 `

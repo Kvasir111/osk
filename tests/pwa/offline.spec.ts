@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test'
+import { readFile, writeFile } from 'node:fs/promises'
 const owner='10000000-0000-4000-8000-000000000001'
 const other='10000000-0000-4000-8000-000000000002'
 const listId='20000000-0000-4000-8000-000000000001'
@@ -64,6 +65,75 @@ async function outbox(page:Page){
   const r=indexedDB.open('osk-offline-v1',1);r.onsuccess=()=>{const db=r.result;const q=db.transaction('outbox').objectStore('outbox').getAll();q.onsuccess=()=>{resolve(q.result);db.close()}}
  }))
 }
+async function stageUpdate(page:Page) {
+ const path='.output/public/sw.js',original=await readFile(path,'utf8')
+ const updated=original.replace(/(const CACHE = "osk-shell-[^"]+)"/,`$1-test-${crypto.randomUUID()}"`)
+ await writeFile(path,updated)
+ try {
+  await page.evaluate(async()=>{const registration=await navigator.serviceWorker.getRegistration();await registration!.update()})
+  await page.waitForFunction(async()=>!!(await navigator.serviceWorker.getRegistration())?.waiting)
+ } catch(error) { await writeFile(path,original);throw error }
+ return ()=>writeFile(path,original)
+}
+
+test('app updates wait for approval, keep an open draft, and preserve queued additions after reload',async({page,context})=>{
+ const data=await setup(page)
+ await expect(page.getByRole('complementary',{name:'App update',exact:true})).toHaveCount(0)
+ data.state.reject=true
+ await addWish(page,'Queued across an app update')
+ const before=await outbox(page)
+ expect(before).toHaveLength(1)
+ await page.getByRole('button',{name:'Add a wish',exact:true}).click()
+ await page.getByLabel('Product name',{exact:true}).fill('Unfinished form stays open')
+ const restore=await stageUpdate(page)
+ try {
+  await expect(page.getByRole('complementary',{name:'App update',exact:true})).toContainText('update is available')
+  await expect(page.getByLabel('Product name',{exact:true})).toHaveValue('Unfinished form stays open')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button',{name:'Later',exact:true}).click()
+  await expect(page.getByRole('button',{name:'Update & reload',exact:true})).toHaveCount(0)
+  await page.getByRole('button',{name:'App update available',exact:true}).click()
+  // Reloading the old shell must not delete a newer worker’s fully downloaded cache.
+  await page.reload()
+  await expect(page.getByRole('button',{name:'Update & reload',exact:true})).toBeVisible()
+  expect(await page.evaluate(async()=>(await caches.keys()).some(key=>key.includes('-test-')))).toBe(true)
+  await context.setOffline(true)
+  const update=page.getByRole('button',{name:'Update & reload',exact:true})
+  await update.focus()
+  await Promise.all([page.waitForEvent('load'),update.press('Enter')])
+  await expect(page.getByRole('heading',{name:/^Saved wishes/})).toBeVisible()
+  expect((await outbox(page)).map(op=>op.id)).toEqual(before.map(op=>op.id))
+  await expect(page.getByRole('button',{name:'Update & reload',exact:true})).toHaveCount(0)
+ } finally { await restore() }
+})
+
+test('updating one tab leaves another tab’s form and old static assets usable',async({page,context})=>{
+ await setup(page)
+ const other=await context.newPage()
+ await setup(other)
+ await other.getByRole('button',{name:'Add a wish',exact:true}).click()
+ await other.getByLabel('Product name',{exact:true}).fill('A draft in the other tab')
+ await page.evaluate(async()=>{
+  const key=(await caches.keys()).find(key=>key.startsWith('osk-shell-'))!
+  await (await caches.open(key)).put('/_nuxt/previous-build-only.js',new Response('previous public chunk',{headers:{'Content-Type':'text/javascript'}}))
+ })
+ const restore=await stageUpdate(page)
+ try {
+  await expect(page.getByRole('button',{name:'Update & reload',exact:true})).toBeVisible()
+  await Promise.all([page.waitForEvent('load'),page.getByRole('button',{name:'Update & reload',exact:true}).click()])
+  await expect(other.getByLabel('Product name',{exact:true})).toHaveValue('A draft in the other tab')
+  expect(await other.evaluate(async()=>(await fetch('/_nuxt/previous-build-only.js')).text())).toBe('previous public chunk')
+  expect(await other.evaluate(async()=>(await fetch('/_nuxt/previous-build-only.js',{headers:{Authorization:'Bearer test-only'}})).status)).toBe(404)
+  await expect(other.getByRole('complementary',{name:'App update',exact:true})).toContainText('update is available')
+  await other.keyboard.press('Escape')
+  await other.setViewportSize({width:390,height:844})
+  for(const colorScheme of ['light','dark'] as const){
+   await other.emulateMedia({colorScheme})
+   expect(await other.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+   await other.getByRole('complementary',{name:'App update',exact:true}).screenshot({path:test.info().outputPath(`app-update-${colorScheme}.png`),animations:'disabled'})
+  }
+ } finally { await other.close();await restore() }
+})
 
 test('production PWA reloads offline, queues a new list and wish, then syncs once and refreshes',async({page,context})=>{
  const data=await setup(page)

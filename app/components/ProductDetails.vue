@@ -3,7 +3,7 @@ import type { WishItem } from '../../shared/types'
 import { money, savings } from '../../shared/pricing'
 import { retailerCount } from '../../shared/retailers'
 const props = defineProps<{ item: WishItem; editable?: boolean; demo?: boolean; shareToken?: string }>()
-defineEmits<{ edit: []; remove: [] }>()
+defineEmits<{ edit: []; remove: []; repair: [] }>()
 const sorted = computed(() => [...props.item.offers].sort((a, b) => a.price_cents - b.price_cents))
 const discount = computed(() => savings(props.item))
 const deleting = ref(false)
@@ -19,6 +19,7 @@ const deleting = ref(false)
     <p v-if="discount" class="savings-note">A little patience pays off. {{ money(discount.cents) }} below MSRP.</p>
     <PriceHistory :item="item" :demo="demo" :share-token="shareToken" />
     <PriceCheckStatus :item="item" :demo="demo" />
+    <button v-if="editable && !demo && !item.pending_sync" class="secondary-button" @click="$emit('repair')">Fix price tracking</button>
     <p v-if="editable && !demo && item.refresh_status === 'failed'" class="note-box">Use Edit item to correct the product name, exact variant, or store links shown above. If a store blocks automated checks, keep its price manual or add a link from another store.</p>
     <div class="section-label"><span>{{ sorted.length }} STORE {{ sorted.length === 1 ? 'OFFER' : 'OFFERS' }}</span><span>USD · BEFORE TAX & SHIPPING</span></div>
     <p v-if="!sorted.length" class="empty-inline">No prices yet. Add a store or check again later.</p>

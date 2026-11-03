@@ -200,3 +200,47 @@ test('MSRP alone explains why no current price will be shown and never becomes a
   await page.goto('/')
   await expect(page.locator('.product-card')).toContainText('Price unknown')
 })
+test('tracking repair compares variants and changes an existing item only after explicit approval',async({page})=>{
+  const state=await setup(page),now=new Date().toISOString()
+  const old=url+'?variant=blue',red=url+'?variant=red'
+  const item={id:'item',list_id:listId,name:'Ceramic mug',variant:'Red',category:'Home',notes:`For the kitchen\nProduct link: ${old}`,image_mode:'custom',image_url:'https://images.example.com/custom.jpg',image_source_url:null,msrp_cents:2500,msrp_source_url:'https://maker.example.com/mug',offers:[{retailer:'Shop',url:old,price_cents:1999,seller_type:'retailer',us_shipping:'unknown',availability:'unknown',shipping_note:''}],refresh_status:'failed',checked_at:null,last_attempt_at:now,price_check_details:{warnings:[],retailer_checks:[{retailer:'Shop',url:old,note:'Wrong variant'}]},created_at:now}
+  state.items.push(item)
+  const patches:any[]=[],reads:string[]=[]
+  await page.route('https://images.example.com/**',route=>route.abort())
+  await page.route('**/api/items/item',route=>{
+    expect(route.request().method()).toBe('PATCH')
+    const input=route.request().postDataJSON();patches.push(input)
+    Object.assign(item,input,{checked_at:null,last_attempt_at:null,refresh_status:'never'})
+    return route.fulfill({json:item})
+  })
+  await page.route('**/api/capture',route=>{
+    const selected=route.request().postDataJSON().url;reads.push(selected)
+    const exact=selected===red
+    return route.fulfill({json:{summary:'Review this exact variant.',checked_at:now,sources:[],warnings:[],variants:[{label:'Blue',url:old},{label:'Red',url:red}],products:[{name:'Ceramic mug',variant:exact?'Red':'Blue',category:'Other',notes:'',msrp_cents:null,msrp_source_url:null,offers:[{retailer:'Shop',url:selected,price_cents:exact?2100:1999,seller_type:'retailer',us_shipping:'unknown',availability:'unknown',shipping_note:''}]}]}})
+  })
+  await page.setViewportSize({width:390,height:844})
+  await page.goto('/')
+  await page.getByRole('button',{name:'Ceramic mug',exact:true}).click()
+  await page.getByRole('button',{name:'Fix price tracking',exact:true}).click()
+  expect(reads).toHaveLength(0)
+  await page.getByRole('button',{name:'Compare listing',exact:true}).click()
+  await expect(page.getByRole('region',{name:'Saved tracking details',exact:true})).toContainText('Red')
+  await expect(page.getByRole('region',{name:'Detected tracking details',exact:true})).toContainText('Blue')
+  expect(patches).toHaveLength(0)
+  await page.getByLabel('Exact store option').selectOption(red)
+  await expect(page.getByRole('button',{name:'Approve tracking correction',exact:true})).toBeDisabled()
+  await page.getByRole('button',{name:'Compare selected option',exact:true}).click()
+  await expect(page.getByRole('region',{name:'Detected tracking details',exact:true})).toContainText('$21')
+  expect(patches).toHaveLength(0)
+  for(const colorScheme of ['light','dark'] as const){
+    await page.emulateMedia({colorScheme})
+    expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true)
+    expect(await page.getByRole('dialog').evaluate(el=>el.scrollWidth<=el.clientWidth+1)).toBe(true)
+    await page.getByRole('dialog').screenshot({path:test.info().outputPath(`tracking-repair-${colorScheme}.png`),animations:'disabled'})
+  }
+  await page.getByRole('button',{name:'Approve tracking correction',exact:true}).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  expect(patches).toHaveLength(1);expect(state.writes).toHaveLength(0)
+  expect(patches[0]).toMatchObject({name:'Ceramic mug',variant:'Red',category:'Home',image_mode:'custom',image_url:item.image_url,msrp_cents:2500,offers:[{url:red,price_cents:2100}]})
+  expect(patches[0].notes).toContain('For the kitchen');expect(patches[0].notes).not.toContain(old)
+})

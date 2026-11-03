@@ -3,6 +3,7 @@ import { imageUrl, productSchema, publicUrl } from '../../shared/validation'
 import { captureUrl } from '../../shared/capture'
 import { attributes, decode, extractProductImage, fetchProductPage } from './product-images'
 import { ProductPageError, productPageFailure } from './product-page-errors'
+import { storeProductNodes } from './store-product-data'
 
 type Node = Record<string, any>
 const text = (value: unknown, limit = 200) => typeof value === 'string' ? decode(value.replace(/<[^>]*>/g, '')).replace(/\s+/g, ' ').trim().slice(0, limit) : ''
@@ -75,6 +76,11 @@ export function parseProductPage(html: string, pageUrl: string, expected?: Produ
     if (attributes(script[1] || '').type?.toLowerCase() !== 'application/ld+json') continue
     try { walk(JSON.parse(script[2]!)) } catch { /* Malformed publisher metadata is optional. */ }
   }
+  const embedded = storeProductNodes(html, pageUrl, meta, attributes)
+  if (embedded.length > 1) throw new ProductPageError('ambiguous')
+  // Publisher variant data is more specific than a generic product/OG price. Do not
+  // combine independent metadata trees, which can introduce duplicate/contradictory variants.
+  if (embedded.length === 1 && !groups.length) { products.length = 0; visited = 0; walk(embedded[0]) }
   const exact = products.filter(product => confirmsListing(product, pageUrl))
   const matchingGroups = groups.filter(group => {
     const url = link(group.url || group['@id'], pageUrl)
@@ -98,7 +104,7 @@ export function parseProductPage(html: string, pageUrl: string, expected?: Produ
   if (!node && meta.get('og:type') !== 'product') throw new ProductPageError('metadata')
   const name = text(node?.name) || pageTitle
   if (!name || /captcha|access denied|just a moment|robot check/i.test(name)) throw new ProductPageError('blocked')
-  const variant = node && !grouped ? [...new Set([text(node.color), text(typeof node.size === 'string' ? node.size : node.size?.name), text(node.model)].filter(Boolean))].join(' · ').slice(0, 200) : ''
+  const variant = node && !grouped ? [...new Set([text(node.color), text(typeof node.size === 'string' ? node.size : node.size?.name), text(node.model) === name ? '' : text(node.model)].filter(Boolean))].join(' · ').slice(0, 200) : ''
   if (expected && !identityMatches(expected, name, variant)) throw new ProductPageError('identity')
   const declared = node && link(node.url || node['@id'], pageUrl)
   if (declared && !samePage(declared, pageUrl)) throw new ProductPageError('identity')
@@ -129,7 +135,7 @@ export function parseProductPage(html: string, pageUrl: string, expected?: Produ
     priced.push({ retailer: page.hostname.replace(/^www\./, '').slice(0,100), url: pageUrl, price_cents: cents,
       seller_type: marketplace ? 'marketplace' : manufacturer ? 'manufacturer' : 'retailer', us_shipping: 'unknown',
       availability: /(?:^|\/)InStock$/.test(availability) ? 'in_stock' : 'unknown',
-      shipping_note: `${seller ? `Seller: ${seller}. ` : ''}Page metadata; tax, shipping, and checkout conditions unverified.` })
+      shipping_note: `${seller ? `Seller: ${seller}. ` : ''}Page metadata; tax, shipping, and checkout conditions unverified.${offer?.description ? ` ${text(offer.description, 200)}` : ''}` })
   }
   if (!priced.length) warnings.push('No exact, current one-time USD price could be verified from this page. You can still save the product or enter a price manually.')
   let msrp: number | null = null
@@ -147,7 +153,7 @@ export function parseProductPage(html: string, pageUrl: string, expected?: Produ
 
 export function savedProductUrls(item: WishItem) {
   const notes = (item.notes.match(/https:\/\/[^\s<>"']+/g) || []).map(value => captureUrl(value))
-  return [...new Set([...item.offers.map(offer => offer.url), ...(item.price_check_details?.retailer_checks || []).map(check => check.url), item.msrp_source_url, ...notes])]
+  return [...new Set([...item.offers.map(offer => offer.url), ...(item.refresh_status === 'never' ? [] : item.price_check_details?.retailer_checks || []).map(check => check.url), item.msrp_source_url, ...notes])]
     .filter((url): url is string => !!url && publicUrl.safeParse(url).success).slice(0, 10)
 }
 

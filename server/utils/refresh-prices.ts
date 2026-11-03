@@ -9,7 +9,7 @@ import { scrapeProducts, savedProductUrls } from './product-scraper'
 import { ProductPageError } from './product-page-errors'
 
 function savedListings(item: WishItem) {
-  return [...item.offers.map(o => ({ retailer: o.retailer, url: o.url })), ...(item.price_check_details?.retailer_checks || [])]
+  return [...item.offers.map(o => ({ retailer: o.retailer, url: o.url })), ...(item.refresh_status === 'never' ? [] : item.price_check_details?.retailer_checks || [])]
     .filter((entry): entry is { retailer: string; url: string } => !!entry.url && publicUrl.safeParse(entry.url).success)
 }
 function checkDetails(item: WishItem, result?: SearchResult, product?: ProductDraft): PriceCheckDetails {
