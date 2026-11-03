@@ -44,6 +44,7 @@ export interface SearchResult {
   products: ProductDraft[]
   sources: { title: string; url: string }[]
   checked_at: string
+  variants?: { label: string; url: string }[]
   retailer_checks?: {
     retailer: string
     url: string | null

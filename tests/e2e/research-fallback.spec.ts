@@ -22,6 +22,7 @@ async function setup(page: Page, status: 'queued' | 'running' | 'failed', url: s
   let started = false
   await page.route('**/api/**', async route => {
     const request = route.request(), path = new URL(request.url()).pathname
+    if (path === '/api/research-config') return route.fulfill({ json: { ai_enabled: true } })
     if (path === '/api/profile') return route.fulfill({ json: { display_name: 'QA', avatar_url: null } })
     if (path === '/api/lists') return route.fulfill({ json: { lists: [list], memberships: [], user_id: userId } })
     if (path === `/api/lists/${listId}/items`) {
@@ -45,7 +46,7 @@ for (const status of ['queued', 'failed'] as const) {
   test(`a ${status} background search can immediately switch to manual entry and save the link without a price`, async ({ page }) => {
     const state = await setup(page, status)
     await page.goto(`/capture?url=${encodeURIComponent(productUrl)}`)
-    await page.getByRole('button', { name: 'Preview product & prices' }).click()
+    await page.getByRole('button', { name: 'Preview product & price' }).click()
     const dialog = page.getByRole('dialog')
     if (status === 'failed') await expect(dialog.getByRole('alert')).toContainText('stopped before finishing')
     await dialog.getByRole('button', { name: 'Enter details manually from this link', exact: true }).click()
@@ -74,7 +75,7 @@ test('a resumed failed name search preserves the name and needs no product URL f
 test('a running search with broken progress polling still allows manual saving', async ({ page }) => {
   const state = await setup(page, 'running', productUrl, true)
   await page.goto(`/capture?url=${encodeURIComponent(productUrl)}`)
-  await page.getByRole('button', { name: 'Preview product & prices' }).click()
+  await page.getByRole('button', { name: 'Preview product & price' }).click()
   await expect(page.getByRole('complementary', { name: 'Product research' })).toContainText('Reconnecting', { timeout: 10000 })
   await page.getByRole('dialog').getByRole('button', { name: 'Enter details manually from this link', exact: true }).click()
   await page.getByLabel('Product name', { exact: true }).fill('My vest')

@@ -1,8 +1,8 @@
 # Ósk
 
-A friends-and-family wishlist built with Nuxt 4, Vue, Tailwind 4, Supabase, and OpenAI. Deploys to Netlify.
+A friends-and-family wishlist built with Nuxt 4, Vue, Tailwind 4, and Supabase, with optional OpenAI research. Deploys to Netlify.
 
-Save products from any store, organize occasion lists, compare offers with manufacturer MSRP, and share lists with your people. The assistant searches for exact models and variants, shows sources, and requires approval before saving. Daily checks run on Netlify.
+Save products from any store, organize occasion lists, compare offers with manufacturer MSRP, and share lists with your people. Product links are read directly from store pages and require approval before saving. Daily updates revisit saved listing URLs without paid AI calls. The original agent remains available only through an explicit server opt-in. Daily checks run on Netlify.
 
 The Dark mode toggle is available on every page. The initial theme follows the device and updates with it until a light/dark choice is saved in this browser. A saved choice also applies to shared lists, sign-in, and dialogs, and is applied before the page paints.
 
@@ -47,7 +47,21 @@ Restart the dev server after changing public environment values. The app verifie
 - Collaboration links require an existing approved account, expire in 7 days, and may be used by multiple recipients. Treat editor invitations as edit access. Owners can revoke outstanding invitations and separately remove existing members.
 - Private helper functions use `auth.uid()`, an empty search path, and explicit grants to avoid recursive RLS. They live in the non-exposed `private` schema. Do not add `private` to the Data API's exposed schemas.
 
-## Connect OpenAI
+## Product page scraping (default)
+
+`PRODUCT_RESEARCH_MODE` defaults to `scrape`. Product capture and daily/manual price refreshes read the HTML of saved public HTTPS product URLs using the existing bounded, DNS-pinned fetcher. No OpenAI key is needed. Known direct model-call entry points and queued agent workers are guarded, so leaving an old OpenAI key configured does not enable spending. Redeploy the updated app and Functions to activate this behavior in production.
+
+Paste a product link instead of a product name. Preview imports unambiguous Product/Offer JSON-LD or product Open Graph metadata, optional photos, explicitly identified USD prices, and stock when stated. It never runs page JavaScript or bypasses login/CAPTCHA. Stores with blocked, missing, ambiguous, marketplace-seller-unknown, subscription, out-of-stock, or non-USD pricing keep the manual fallback. Aggregate price ranges are not exact variant prices. Tax and US shipping remain unverified.
+
+ProductGroup pages (including Rogue colors and rack configurations) can be saved as general items without a price. When the page publishes same-page variant links, preview offers an option picker; reading a selected option preserves its SKU/configuration URL and imports only that exact option’s price and picture. A group’s starting price is never treated as the selected configuration price. Additional rack customizations may change the total; retain the full configuration link and confirm it at the store.
+
+Daily checks revisit up to ten saved priced/unpriced listing URLs, including a captured link in notes, with three concurrent requests and an eight-second lookup budget. They do not discover other stores automatically. Add other retailer URLs through item editing for comparison; price is optional, and unpriced URLs stay in notes for the next check. Fully failed checks keep previous prices; partial checks publish only newly verified offers and retain missing listing URLs in diagnostics. MSRP stays unknown unless the manufacturer is identified and explicitly publishes MSRP; existing baselines stay fixed. History records observations, not reconstructed sale prices. The existing 20-per-account daily lookup budget still applies to interactive checks.
+
+No schema migration is required. No scraper API, paid search service, or headless browser is added.
+
+## Retained OpenAI agent (disabled by default)
+
+The following agent configuration and behavior apply only when a server operator explicitly sets `PRODUCT_RESEARCH_MODE=ai`. Its code and original interface remain in the repository.
 
 Set `OPENAI_API_KEY` in `.env` locally and in Netlify's environment variables for deployment. Keys stay server-side. The default `OPENAI_MODEL` is `gpt-5.5`; it is configurable and must support Responses, web search, reasoning, and structured outputs.
 
@@ -87,20 +101,21 @@ Add these environment variables in Netlify, available at build time **and to Fun
 | `NUXT_PUBLIC_SUPABASE_URL` | New project's URL; public |
 | `NUXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Publishable key; public |
 | `SUPABASE_SERVICE_ROLE_KEY` | Server-only database access |
-| `OPENAI_API_KEY` | Server-only OpenAI key |
+| `PRODUCT_RESEARCH_MODE` | Server-only; defaults to `scrape`; `ai` explicitly restores paid research |
+| `OPENAI_API_KEY` | Optional server-only OpenAI key, used only in `ai` mode |
 | `INVITATION_ADMIN_EMAILS` | Server-only, comma-separated verified email addresses allowed to create account invitations |
 | `OPENAI_MODEL` | Optional; defaults to `gpt-5.5` |
 | `OPENAI_SEARCH_MODEL` | Optional override for interactive background research |
 | `OPENAI_EXTRACTION_MODEL` | Optional formatter for legacy/daily synchronous checks |
 | `PRICE_REFRESH_SECRET` | Random server-only worker secret |
 
-Generate the worker secret with `openssl rand -hex 32`. Netlify supplies `URL` automatically for dispatch to the same site's workers. Interactive jobs require `product-search-background` and the existing `PRICE_REFRESH_SECRET`; production does not use an in-memory fallback. Local Nuxt development runs jobs in its persistent dev process. A running local job can be interrupted by a server restart; its saved findings remain recoverable and stalled jobs can be retried. Rebuild after public config changes. Do not publish `.env`, secret keys, or a database password.
+Generate the worker secret with `openssl rand -hex 32`. Netlify supplies `URL` automatically for dispatch to the same site's workers. Opted-in AI jobs require `product-search-background` and the existing `PRICE_REFRESH_SECRET`; production does not use an in-memory fallback. Local Nuxt development runs jobs in its persistent dev process. A running local job can be interrupted by a server restart; its saved findings remain recoverable and stalled jobs can be retried. Rebuild after public config changes. Do not publish `.env`, secret keys, or a database password.
 
 Model names are public configuration. `netlify.toml` excludes only `OPENAI_MODEL` from environment-value secret scanning, so its documented default does not block deployment if the variable was marked secret in Netlify. API keys and worker secrets remain covered by scanning. Configure model variables as non-secret values when adding them in Netlify.
 
 ### Daily refresh
 
-`daily-prices` runs at **12:00 UTC every day** (7 a.m. Chicago during daylight saving time; 6 a.m. standard time). It finds items not attempted since UTC midnight and dispatches batches of ten to `refresh-prices-background`. Each worker validates a secret and atomically leases items through a service-only RPC, preventing duplicate checks by overlapping workers. Each item search has a 48-second deadline; batches stay below the background function's 15-minute limit. [Netlify scheduling](https://docs.netlify.com/build/functions/scheduled-functions/), [background functions](https://docs.netlify.com/build/functions/background-functions/).
+`daily-prices` runs at **12:00 UTC every day** (7 a.m. Chicago during daylight saving time; 6 a.m. standard time). It finds items not attempted since UTC midnight and dispatches batches of ten to `refresh-prices-background`. Each worker validates a secret and atomically leases items through a service-only RPC, preventing duplicate checks by overlapping workers. Each default scraping lookup shares an eight-second budget across saved URLs; optional AI checks retain their 48-second deadline. Batches stay below the background function's 15-minute limit. [Netlify scheduling](https://docs.netlify.com/build/functions/scheduled-functions/), [background functions](https://docs.netlify.com/build/functions/background-functions/).
 
 Successful exact-variant checks replace offers and the checked timestamp, preserving the original MSRP once established. Failed or unmatched checks keep the previous prices and set a visible failure state. Failures are attempted again the next day; manual checks are also available, with a five-minute cooldown. Editing an item marks its offers as manually entered and makes it eligible for the next daily check.
 
@@ -118,7 +133,7 @@ NITRO_PRESET=netlify pnpm run build
 
 The tests cover pricing/source validation, refresh failures/variant matching, and real PostgreSQL row policies via PGlite (with a minimal `auth.uid()` test harness). Browser checks cover persistent local list/item editing, sale filters, mobile overflow, and dialog dismissal. Browser tests force demo configuration and make no paid provider calls.
 
-These checks do **not** replace verification against your hosted Supabase project, email delivery, a live OpenAI product search, and Netlify's scheduled worker. Those require your account configuration and a deployment. Before family use, verify an owner, editor, viewer, unrelated account, and signed-out sharing link against the hosted app, and run Supabase's database advisors.
+These checks do **not** replace verification against your hosted Supabase project, email delivery, live retailer page access (and OpenAI only if explicitly enabled), and Netlify's scheduled worker. Those require your account configuration and a deployment. Before family use, verify an owner, editor, viewer, unrelated account, and signed-out sharing link against the hosted app, and run Supabase's database advisors.
 
 ## Main files
 
@@ -182,6 +197,8 @@ Run `supabase/account-invitations.sql` once in the Supabase SQL Editor. Add `INV
 Open **Invite people** to send an email invitation or generate a code/link. Codes carry 120 bits of randomness, are stored only as SHA-256 hashes, expire in seven days, and bind atomically to the first email that uses them. The full code is displayed once. Share links put the code in a fragment, which the join page removes from browser history. Recipients can also enter a code at `/join`; the login page links there.
 
 New accounts are created using Supabase’s server-only invitation API. Existing accounts receive an ordinary magic link with automatic signup disabled. Both return to `/login?next=%2Fprofile` on the configured Netlify `URL`, so the production origin and its login callback must be allowed in Supabase. Public signup can remain disabled. Configure custom SMTP to deliver to friends and family; Supabase’s default sender is restricted to project-team addresses.
+
+Branded **Invite user** and **Magic Link** HTML bodies, suggested subjects, and installation instructions live in [`supabase/email-templates`](supabase/email-templates/README.md). Apply them in Supabase’s email-template settings; deploying the app does not update hosted email templates. Both preserve Supabase’s generated confirmation URL and use Ósk’s colors with mobile and optional dark-mode styling.
 
 Each configured administrator may create 20 invitations per rolling 24 hours. Each invitation allows five email delivery attempts at least 60 seconds apart, including failed attempts; retrying a code uses the same email. Administrators can see, resend, and revoke their own invitations. Revocation blocks further claims and resends but does not delete accounts or invalidate authentication emails already sent. Account invitations grant no family or wishlist permissions; those remain separate sharing actions.
 

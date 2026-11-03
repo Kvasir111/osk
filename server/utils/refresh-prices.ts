@@ -4,6 +4,8 @@ import { fillItemPicture } from './product-images'
 import { searchProducts } from './product-search'
 import { publicUrl } from '../../shared/validation'
 import { retailerDomain } from '../../shared/retailers'
+import { aiResearchEnabled } from './research-mode'
+import { scrapeProducts, savedProductUrls } from './product-scraper'
 
 function savedListings(item: WishItem) {
   return [...item.offers.map(o => ({ retailer: o.retailer, url: o.url })), ...(item.price_check_details?.retailer_checks || [])]
@@ -30,7 +32,9 @@ export async function refreshItem(db: SupabaseClient, itemId: string, cutoff: st
   if (!item) return 'skipped'
   let result: SearchResult | undefined
   try {
-    result = await searchProducts(`Find current offers for ${item.name}, variant ${item.variant}. Existing listing URLs: ${[...new Set(savedListings(item).map(o => o.url))].slice(0, 20).join(', ')}`, item)
+    result = aiResearchEnabled()
+      ? await searchProducts(`Find current offers for ${item.name}, variant ${item.variant}. Existing listing URLs: ${[...new Set(savedListings(item).map(o => o.url))].slice(0, 20).join(', ')}`, item)
+      : await scrapeProducts(savedProductUrls(item), item)
     const product = result.products.find(p => p.name === item.name && p.variant === item.variant)
     if (!product?.offers.length) throw new Error('No exact, sourced offers found')
     const { error: saveError } = await db.from('wish_items').update({

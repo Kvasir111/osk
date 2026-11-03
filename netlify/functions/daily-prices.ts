@@ -4,7 +4,7 @@ import { adminDatabase } from '../../server/utils/database-core'
 export default async () => {
   const secret = process.env.PRICE_REFRESH_SECRET
   const site = process.env.URL
-  if (!secret || !site || !process.env.OPENAI_API_KEY) throw new Error('Daily price refresh environment is incomplete')
+  if (!secret || !site) throw new Error('Daily price refresh environment is incomplete')
   const db = adminDatabase()
   const cutoff = new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z'
   let after = '00000000-0000-0000-0000-000000000000'

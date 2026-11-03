@@ -40,7 +40,7 @@ test('admin can email invitations, generate a code, resend, and revoke on mobile
  await expect(page.locator('.invitations-page').getByRole('status')).toContainText('Invitation email sent')
  await expect(page.locator('.account-invitation-row')).toContainText('friend@example.com')
  await page.getByRole('button',{name:'Resend email'}).click()
- expect(resends).toBe(1)
+ await expect.poll(()=>resends).toBe(1)
  await page.getByRole('button',{name:'Generate invitation code'}).click()
  await expect(page.getByLabel('Invitation code',{exact:true})).toHaveValue(code)
  await expect(page.getByRole('button',{name:'Copy invitation link'})).toBeVisible()

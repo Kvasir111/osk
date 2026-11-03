@@ -1,13 +1,31 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { refreshItem } from '../../server/utils/refresh-prices'
 import { searchProducts } from '../../server/utils/product-search'
+import { scrapeProducts } from '../../server/utils/product-scraper'
 import type { SupabaseClient } from '@supabase/supabase-js'
 vi.mock('../../server/utils/product-search', () => ({ searchProducts: vi.fn() }))
+vi.mock('../../server/utils/product-scraper', async original => ({ ...await original<typeof import('../../server/utils/product-scraper')>(), scrapeProducts: vi.fn() }))
 const product = { name: 'Exact product', variant: 'Black', category: 'Tech', notes: '', msrp_cents: 10000, msrp_source_url: 'https://example.com/msrp', offers: [{ url: 'https://example.com/product' }] }
 const update = vi.fn()
 const db = { rpc: vi.fn(), from: vi.fn(() => ({ update: (data: unknown) => { update(data); return { eq: vi.fn().mockResolvedValue({ error: null }) } } })) } as unknown as SupabaseClient
-beforeEach(() => { vi.clearAllMocks(); vi.mocked(db.rpc).mockResolvedValue({ data: [product], error: null } as any) })
+beforeEach(() => { vi.clearAllMocks(); vi.stubEnv('PRODUCT_RESEARCH_MODE','ai'); vi.mocked(db.rpc).mockResolvedValue({ data: [product], error: null } as any) })
+afterEach(() => vi.unstubAllEnvs())
 describe('Daily refresh behavior', () => {
+  it('uses scraping by default even with an existing OpenAI key', async () => {
+    vi.stubEnv('PRODUCT_RESEARCH_MODE', '')
+    vi.stubEnv('OPENAI_API_KEY', 'test-only-existing-key')
+    vi.mocked(scrapeProducts).mockResolvedValue({ products: [product], checked_at: 'now', sources: [], summary: '' } as any)
+    expect(await refreshItem(db, 'id', 'cutoff')).toBe('ok')
+    expect(scrapeProducts).toHaveBeenCalledWith(expect.arrayContaining(['https://example.com/product']), product)
+    expect(searchProducts).not.toHaveBeenCalled()
+  })
+  it('retains previous prices when saved pages are blocked without falling back to AI', async () => {
+    vi.stubEnv('PRODUCT_RESEARCH_MODE', 'scrape')
+    vi.mocked(scrapeProducts).mockResolvedValue({ products: [], checked_at: 'now', sources: [], summary: '', warnings: ['Page blocked'], retailer_checks: [] })
+    expect(await refreshItem(db, 'id', 'cutoff')).toBe('failed')
+    expect(update.mock.calls[0]![0]).not.toHaveProperty('offers')
+    expect(searchProducts).not.toHaveBeenCalled()
+  })
   it('preserves prices when a search fails', async () => {
     vi.mocked(searchProducts).mockRejectedValue(new Error('Timeout'))
     expect(await refreshItem(db, 'id', 'cutoff')).toBe('failed')

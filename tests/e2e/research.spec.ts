@@ -18,6 +18,7 @@ test('partial research can be approved and continues polling after the dialog cl
  })
  await page.route('**/api/**',async route=>{
   const request=route.request(),path=new URL(request.url()).pathname
+  if(path==='/api/research-config')return route.fulfill({json:{ai_enabled:true}})
   if(path==='/api/profile')return route.fulfill({json:{display_name:'QA',avatar_url:null,email:'qa@example.com'}})
   if(path==='/api/lists')return route.fulfill({json:{lists:[list],memberships:[],user_id:userId}})
   if(path===`/api/lists/${listId}/items`&&request.method()==='POST'){
@@ -42,7 +43,7 @@ test('partial research can be approved and continues polling after the dialog cl
   return route.fulfill({status:404,json:{statusMessage:'Mock route not found'}})
  })
  await page.goto('/capture?url=https%3A%2F%2Fshop.example%2Fbook')
- await page.getByRole('button',{name:'Preview product & prices'}).click()
+ await page.getByRole('button',{name:'Preview product & price'}).click()
  await expect(page.getByRole('heading',{name:'A researched book',exact:true})).toBeVisible({timeout:10000})
  await expect(page.getByRole('region',{name:'Search progress'})).toContainText('Checking…')
  expect(approvals).toBe(0)

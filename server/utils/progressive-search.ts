@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { requireAiResearch } from './research-mode'
 import { zodTextFormat } from 'openai/helpers/zod'
 import { z } from 'zod'
 import { productSchema, publicUrl } from '../../shared/validation'
@@ -28,6 +29,7 @@ export function researchTasks(url?: string | null): ResearchTask[] {
   ]
 }
 export async function researchStage(query: string, task: ResearchTask, anchors: ProductDraft[] = [], signal?: AbortSignal, modelOverride?: string): Promise<SearchResult> {
+  requireAiResearch()
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 40000, maxRetries: 0 })
   const model = modelOverride || process.env.OPENAI_SEARCH_MODEL || process.env.OPENAI_MODEL || 'gpt-5.5'
   const started = Date.now()

@@ -25,10 +25,19 @@ function fakeDb(){return {from:(table:string)=>{
  };return query
  }} as unknown as SupabaseClient}
 beforeEach(()=>{
- vi.clearAllMocks()
+ vi.clearAllMocks(); vi.stubEnv('PRODUCT_RESEARCH_MODE','ai')
  rows={product_search_jobs:[{id:'job',user_id:'owner',query:'A book',product_url:null,status:'queued',result:null,approved_item_id:null,approved_snapshot:null}],wish_lists:[{id:'list',owner_id:'owner'}],wish_items:[],list_members:[]}
 })
 describe('Durable research lifecycle',()=>{
+ it('disables queued agents and rejects dispatch without making model or network calls', async () => {
+  vi.stubEnv('PRODUCT_RESEARCH_MODE','scrape')
+  const fetcher=vi.fn();vi.stubGlobal('fetch',fetcher)
+  await runSearchJob(fakeDb(),'job')
+  expect(rows.product_search_jobs![0].status).toBe('failed')
+  expect(researchStage).not.toHaveBeenCalled()
+  await expect(dispatchSearchJob(fakeDb(),'job')).rejects.toThrow('AI research is disabled')
+  expect(fetcher).not.toHaveBeenCalled()
+ })
  it('dispatches to the current deployment without redirects and requires asynchronous acceptance',async()=>{
   vi.stubEnv('URL','https://osk.example.com')
   vi.stubEnv('DEPLOY_URL','https://current--osk.netlify.app')

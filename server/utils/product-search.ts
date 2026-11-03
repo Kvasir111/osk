@@ -1,4 +1,5 @@
 import OpenAI from 'openai'
+import { requireAiResearch } from './research-mode'
 import { zodTextFormat } from 'openai/helpers/zod'
 import { z } from 'zod'
 import { offerSchema, productSchema, publicUrl } from '../../shared/validation'
@@ -53,6 +54,7 @@ export function retainSourcedProducts(products: ProductDraft[], sources: { url: 
 }
 
 export async function searchProducts(query: string, exact?: ProductDraft): Promise<SearchResult> {
+  requireAiResearch()
   if (!process.env.OPENAI_API_KEY) throw new Error('OpenAI is not configured yet.')
   const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 45000, maxRetries: 0 })
   const signal = AbortSignal.timeout(48000)

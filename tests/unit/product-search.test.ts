@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ProductDraft } from '../../shared/types'
 
 const { create, parse } = vi.hoisted(() => ({ create: vi.fn(), parse: vi.fn() }))
@@ -16,12 +16,13 @@ const research = (url: string) => ({ status: 'completed', output_text: 'Sourced 
   { type: 'message', content: [{ type: 'output_text', annotations: [{ type: 'url_citation', url, title: 'Product page' }] }] },
 ] })
 beforeEach(() => {
-  vi.clearAllMocks()
+  vi.clearAllMocks(); vi.stubEnv('PRODUCT_RESEARCH_MODE','ai')
   vi.stubEnv('OPENAI_API_KEY', 'test-only-not-a-real-key')
   create.mockImplementation(async request => request.tools[0].filters ? research(product.offers[1]!.url)
     : request.instructions.includes('YOUR ASSIGNMENT: Search independent') ? research(product.offers[2]!.url) : research(product.offers[0]!.url))
   parse.mockResolvedValue({ status: 'completed', output_parsed: { summary: 'Matches found.', products: [product], retailer_checks: [] } })
 })
+afterEach(() => vi.unstubAllEnvs())
 describe('Retailer research coverage', () => {
   it('combines independent research evidence instead of keeping only the manufacturer', async () => {
     const result = await searchProducts('Example product, blue, 40 servings')

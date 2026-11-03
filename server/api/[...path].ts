@@ -20,6 +20,9 @@ import { captureQuery } from '../../shared/capture'
 import { accountInvitationRequest, redeemAccountInvitation } from '../utils/account-invitations'
 import { createOfflineItem, createOfflineList } from '../utils/offline-create'
 import { stalledSearch } from '../../shared/search-progress'
+import { aiResearchEnabled } from '../utils/research-mode'
+import { scrapeProducts } from '../utils/product-scraper'
+import { captureUrl } from '../../shared/capture'
 
 const uuid = z.string().uuid()
 export default defineEventHandler(async event => {
@@ -45,6 +48,7 @@ export default defineEventHandler(async event => {
       return { list, items }
     }
     const { db, user } = await requireUser(event)
+    if (resource === 'research-config' && path.length === 1 && method === 'GET') return { ai_enabled: aiResearchEnabled() }
     if (resource === 'santa') return await santaRequest(event, path, db, user)
     if (resource === 'account-invitations') return await accountInvitationRequest(event, path, user)
     if (resource === 'families' || resource === 'family-join') return await familyRequest(event, path, db, user)
@@ -96,7 +100,7 @@ export default defineEventHandler(async event => {
     }
     const reserve = async () => {
       const allowed = dbResult(await adminDatabase().rpc('reserve_ai_request', { target_user: user.id }))
-      if (!allowed) throw createError({ statusCode: 429, statusMessage: 'Daily search limit reached (20 checks/searches). Try again tomorrow.' })
+      if (!allowed) throw createError({ statusCode: 429, statusMessage: 'Daily lookup limit reached (20 checks/lookups). Try again tomorrow.' })
     }
 
     if (resource === 'lists' && path.length === 1) {
@@ -232,6 +236,8 @@ export default defineEventHandler(async event => {
       }
     }
     if (resource === 'searches') {
+      if (!aiResearchEnabled() && method === 'POST') throw createError({ statusCode: 503, statusMessage: 'AI research is disabled. Paste a product link to read its page, or enter details manually.' })
+      if (!aiResearchEnabled() && method === 'GET' && path.length === 1) return []
       if(method === 'GET' && path.length === 1) return dbResult(await db.from('product_search_jobs').select('*')
         .gte('created_at',new Date(Date.now()-86400000).toISOString()).order('created_at',{ascending:false}).limit(20))
       if (method === 'GET' && path.length === 2) {
@@ -263,6 +269,12 @@ export default defineEventHandler(async event => {
     }
     if ((resource === 'search' || resource === 'capture') && method === 'POST' && path.length === 1) {
       const input = await readBody(event)
+      if (!aiResearchEnabled()) {
+        const url = resource === 'capture' ? z.object({ url: publicUrl }).parse(input).url : captureUrl(z.object({ query: z.string().trim().min(3).max(2048) }).parse(input).query)
+        if (!url) throw createError({ statusCode: 400, statusMessage: 'Paste a public HTTPS product link, or add the item manually.' })
+        await reserve()
+        return await scrapeProducts([url])
+      }
       const query = resource === 'capture' ? captureQuery(z.object({ url: publicUrl }).parse(input).url)
         : z.object({ query: z.string().trim().min(3).max(1000) }).parse(input).query
       if (!process.env.OPENAI_API_KEY) throw createError({ statusCode: 503, statusMessage: 'Add an OpenAI API key on the server to enable product search.' })

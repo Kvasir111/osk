@@ -5,7 +5,7 @@ export function useAccount() {
   const config = useRuntimeConfig().public
   const demo = !config.supabaseUrl || !config.supabasePublishableKey
   const client = useNuxtApp().$supabase
-  async function api<T>(url: string, options: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: unknown; accountId?: string } = {}): Promise<T> {
+  async function api<T>(url: string, options: { method?: 'GET' | 'POST' | 'PATCH' | 'DELETE'; body?: unknown; accountId?: string; timeout?: number } = {}): Promise<T> {
     if (import.meta.client && !navigator.onLine) throw new Error('This action needs a connection. Your offline additions are kept on this device.')
     const { data } = client ? await client.auth.getSession() : { data: { session: null } }
     const { accountId, ...request } = options

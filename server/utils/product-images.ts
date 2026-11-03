@@ -25,7 +25,7 @@ export async function fetchProductPage(value:string,signal:AbortSignal,redirects
   const url=new URL(value)
   if(url.port&&url.port!=='443')throw new Error('Invalid HTTPS port')
   return new Promise((resolve,reject)=>{
-    const req=request(url,{method:'GET',agent:false,lookup:safeLookup,signal,headers:{'User-Agent':'Osk/1.0 (product image metadata)','Accept':'text/html,application/xhtml+xml','Accept-Encoding':'identity'}},response=>{
+    const req=request(url,{method:'GET',agent:false,lookup:safeLookup,signal,headers:{'User-Agent':'Osk/1.0 (product details and price checks)','Accept':'text/html,application/xhtml+xml','Accept-Encoding':'identity'}},response=>{
       if([301,302,303,307,308].includes(response.statusCode||0)&&response.headers.location){
         response.destroy()
         void fetchProductPage(new URL(response.headers.location,url).href,signal,redirects+1).then(resolve,reject);return
@@ -45,7 +45,7 @@ export async function fetchProductPage(value:string,signal:AbortSignal,redirects
     req.on('error',reject);req.end()
   })
 }
-function decode(value:string) {
+export function decode(value:string) {
   return value.replace(/&(?:amp|quot|apos|lt|gt|#\d+|#x[0-9a-f]+);/gi,entity=>{
     const named:Record<string,string>={'&amp;':'&','&quot;':'"','&apos;':"'",'&lt;':'<','&gt;':'>'}
     if(named[entity.toLowerCase()])return named[entity.toLowerCase()]!
@@ -53,7 +53,7 @@ function decode(value:string) {
     return n>0&&n<=0x10ffff?String.fromCodePoint(n):''
   })
 }
-function attributes(tag:string) {
+export function attributes(tag:string) {
   return Object.fromEntries([...tag.matchAll(/([\w:-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/g)].map(m=>[m[1]!.toLowerCase(),decode(m[2]??m[3]??m[4]??'')]))
 }
 function matches(name:string,title:string) {

@@ -23,6 +23,8 @@
 
 ## Product behavior
 
+- Product research defaults to direct page scraping. Keep paid model entry points and background jobs disabled unless `PRODUCT_RESEARCH_MODE=ai` is explicitly set server-side; an existing API key alone must never enable spending. Keep the agent code available. Scraping reads saved product URLs and does not promise name search or automatic discovery of other stores.
+
 - Keep the unconfigured local demo usable. Its prices are fictional and its data stays local; connecting a backend must not upload demo data.
 - Store USD amounts as integer cents. Manufacturer MSRP is the baseline; unknown MSRP stays unknown. A retailer's crossed-out price is not manufacturer MSRP.
 - Match exact products and variants. Preserve listing URLs and source evidence, seller identity, shipping qualifications, and discount conditions. Aim for two independent non-manufacturer retailers without inventing offers or substituting variants.

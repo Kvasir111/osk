@@ -1,5 +1,5 @@
 <script setup lang="ts">
-const { user,demo }=useAccount()
+const { user,demo,api }=useAccount()
 const { jobs,resume,fetchJob }=useSearchJobs()
 const store=useWishlists()
 const dismissed=ref<string[]>([])
@@ -25,6 +25,7 @@ async function tick(current:number){
 watch(()=>user.value?.id,async id=>{
   generation++;const current=generation;clearTimeout(timer);jobs.value={};dismissed.value=[]
   if(demo||!id)return
+  try { const config = await api<{ ai_enabled: boolean }>('/api/research-config', { accountId: id, timeout: 5000 }); if (!config.ai_enabled || current !== generation) return } catch { return }
   try{await resume()}catch{networkError.value=true}
   if(current===generation)timer=setTimeout(()=>tick(current),1000)
 },{immediate:true})

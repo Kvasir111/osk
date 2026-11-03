@@ -3,6 +3,7 @@ import type { ProductSearchJob, SearchResult, WishItem } from '../../shared/type
 import { dbResult } from './database-core'
 import { resolveProductImage } from './product-images'
 import { researchStage, researchTasks, mergeResearch } from './progressive-search'
+import { aiResearchEnabled, requireAiResearch } from './research-mode'
 
 export async function applyApprovedResearch(db: SupabaseClient, job: ProductSearchJob) {
   if (!job.approved_item_id || !job.approved_snapshot || !job.result || !['completed','failed'].includes(job.status)) return
@@ -39,6 +40,10 @@ export async function applyApprovedResearch(db: SupabaseClient, job: ProductSear
 }
 
 export async function runSearchJob(db: SupabaseClient, id: string) {
+  if (!aiResearchEnabled()) {
+    dbResult(await db.from('product_search_jobs').update({ status: 'failed', error_message: 'AI research is disabled. Paste a product link or add the item manually.', finished_at: new Date().toISOString(), updated_at: new Date().toISOString() }).eq('id', id).eq('status', 'queued'))
+    return
+  }
   const job = dbResult(await db.from('product_search_jobs').update({status:'running',updated_at:new Date().toISOString()})
     .eq('id',id).eq('status','queued').select('*').maybeSingle()) as ProductSearchJob | null
   if (!job) return // Replayed dispatches never spend another search budget.
@@ -95,6 +100,7 @@ export async function runSearchJob(db: SupabaseClient, id: string) {
 }
 
 export async function dispatchSearchJob(db: SupabaseClient, id: string) {
+  requireAiResearch()
   if (process.env.URL) {
     if (!process.env.PRICE_REFRESH_SECRET) throw new Error('Background authentication is not configured')
     // Pin dispatch to this deployment, avoiding alias redirects or a different published version.

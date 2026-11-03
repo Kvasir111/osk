@@ -9,7 +9,7 @@ function request(token = 'worker-test-only') {
   return new Request('https://osk.example.com/.netlify/functions/product-search-background', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
 }
 beforeEach(() => {
-  vi.clearAllMocks()
+  vi.clearAllMocks(); vi.stubEnv('PRODUCT_RESEARCH_MODE','ai')
   vi.stubEnv('PRICE_REFRESH_SECRET', 'worker-test-only')
   vi.stubEnv('NUXT_PUBLIC_SUPABASE_URL', 'https://qa.supabase.co')
   vi.stubEnv('SUPABASE_SERVICE_ROLE_KEY', 'service-test-only')
