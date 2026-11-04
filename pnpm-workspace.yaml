@@ -1,0 +1,4 @@
+# Dependency install scripts approved for this app. Keep other scripts unapproved.
+allowBuilds:
+  esbuild: true
+  '@tailwindcss/oxide': true

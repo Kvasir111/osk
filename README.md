@@ -34,6 +34,8 @@ cp .env.example .env # only if .env does not already exist
 pnpm run dev
 ```
 
+Dependency install scripts are approved explicitly in `pnpm-workspace.yaml` using pnpm’s `allowBuilds` setting. Keep this file in the repository so Netlify’s clean install can run esbuild’s install scripts. The old `package.json` → `pnpm.onlyBuiltDependencies` setting is ignored by the pinned pnpm version.
+
 Without Supabase configuration, the app runs an explicitly labeled local demo. Sample prices are fictional examples, not current offers. Lists and edits persist in browser local storage; sharing, AI search, and daily checks are disabled. Demo data is never uploaded when a backend is connected.
 
 ## Connect the new Supabase project

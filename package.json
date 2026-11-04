@@ -39,11 +39,5 @@
     "typescript": "^5.9.3",
     "vitest": "^4.0.0",
     "vue-tsc": "^3.3.14"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "@tailwindcss/oxide"
-    ]
   }
 }
