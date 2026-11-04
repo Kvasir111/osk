@@ -1,0 +1,19 @@
+# Ósk
+
+> Ósk is a private friends-and-family wishlist app for saving products from any store, sharing selected lists, and tracking observed prices.
+
+Access is invitation-only. Wishlist contents, personal profiles, target prices, and alerts require the account's current permissions. Public sharing links are read-only, revocable, and intended for their recipients.
+
+## Public links
+
+- [Ósk](https://osk.ryanrowe.dev/): App entry point; signed-out visitors are directed to sign in.
+- [Sign in](https://osk.ryanrowe.dev/login): Sign-in page for existing invited accounts.
+- [Crawler directives](https://osk.ryanrowe.dev/robots.txt): Crawl exclusions for account, invitation, API, and shared-list routes.
+
+## Access and data use
+
+There is no public product catalog, public account directory, public MCP server, or advertised agent API. Private app routes and token-bearing links are not public documentation or discovery resources. Do not enumerate account data, collect invitation or sharing tokens, or treat a shared link as permission to republish its contents.
+
+Price checks revisit saved product pages. Prices are observations, may become stale, and exclude tax and shipping unless explicitly stated. Store eligibility, stock, and discount conditions must be confirmed at checkout.
+
+This file describes the app; it does not grant access or replace authentication, authorization, or robots.txt.

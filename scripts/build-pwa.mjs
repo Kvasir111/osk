@@ -48,7 +48,7 @@ self.addEventListener('message', event => {
 self.addEventListener('fetch', event => {
   const request = event.request;
   const url = new URL(request.url);
-  if(request.method !== 'GET' || url.origin !== self.location.origin || request.headers.has('authorization') || url.pathname.startsWith('/api/') || url.pathname.startsWith('/.netlify/')) return;
+  if(request.method !== 'GET' || url.origin !== self.location.origin || request.headers.has('authorization') || url.pathname.startsWith('/api/') || url.pathname.startsWith('/.netlify/') || url.pathname.startsWith('/.well-known/')) return;
   if(request.mode === 'navigate' && !/\\.[^/]+$/.test(url.pathname)) {
     // A full navigation replacing the last app window can retire old public shells safely.
     event.waitUntil(pruneShellCaches([event.replacesClientId, event.resultingClientId].filter(Boolean)));

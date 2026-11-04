@@ -11,7 +11,7 @@ createServer(async(req,res)=>{
   let body
   let extension=extname(path)
   try{body=await readFile(pathname==='/'?resolve(root,'index.html'):path);if(pathname==='/')extension='.html'}catch{
-   if(extension||pathname.startsWith('/api/')){res.writeHead(404);return res.end()}
+   if(extension||pathname.startsWith('/api/')||pathname.startsWith('/.well-known/')){res.writeHead(404);return res.end()}
    body=await readFile(resolve(root,'index.html'));extension='.html'
   }
   res.writeHead(200,{'Content-Type':types[extension]||'application/octet-stream','Cache-Control':'no-store'});res.end(body)

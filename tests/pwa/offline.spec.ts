@@ -402,3 +402,20 @@ test('personal targets and alerts reload offline without allowing writes, and ne
  await expect(page.getByText('My private target book',{exact:true})).toHaveCount(0)
  expect(data.tracking.writes).toEqual([owner])
 })
+
+
+test('installed worker serves discovery text and preserves missing-file 404s instead of the app shell',async({page})=>{
+ await setup(page)
+ const responses=await page.evaluate(async()=>{
+  const paths=['/llms.txt','/.well-known/ard.json','/.well-known/not-advertised','/missing-discovery.txt','/robots.txt','/theme-init.js']
+  return Promise.all(paths.map(async path=>{const response=await fetch(path);return {path,status:response.status,type:response.headers.get('content-type'),body:await response.text()}}))
+ })
+ expect(responses.find(r=>r.path==='/llms.txt')).toMatchObject({status:200,type:'text/plain'})
+ expect(responses.find(r=>r.path==='/llms.txt')!.body).toMatch(/^# Ósk\n/)
+ for(const path of ['/.well-known/ard.json','/.well-known/not-advertised','/missing-discovery.txt'])expect(responses.find(r=>r.path===path)?.status).toBe(404)
+ expect(responses.find(r=>r.path==='/robots.txt')?.status).toBe(200)
+ expect(responses.find(r=>r.path==='/theme-init.js')?.status).toBe(200)
+ const navigation=await page.goto('/.well-known/not-advertised')
+ expect(navigation?.status()).toBe(404)
+ await expect(page.getByRole('heading',{name:/Saved wishes/})).toHaveCount(0)
+})
