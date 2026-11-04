@@ -3,7 +3,9 @@ import { refreshItem } from '../../server/utils/refresh-prices'
 import { searchProducts } from '../../server/utils/product-search'
 import { scrapeProducts } from '../../server/utils/product-scraper'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { checkHomeDepot } from '../../server/utils/home-depot'
 import { ProductPageError } from '../../server/utils/product-page-errors'
+vi.mock('../../server/utils/home-depot', async original => ({ ...await original<typeof import('../../server/utils/home-depot')>(), checkHomeDepot: vi.fn() }))
 vi.mock('../../server/utils/product-search', () => ({ searchProducts: vi.fn() }))
 vi.mock('../../server/utils/product-scraper', async original => ({ ...await original<typeof import('../../server/utils/product-scraper')>(), scrapeProducts: vi.fn() }))
 const product = { last_attempt_at:'2026-11-03T12:00:00Z', name: 'Exact product', variant: 'Black', category: 'Tech', notes: '', msrp_cents: 10000, msrp_source_url: 'https://example.com/msrp', offers: [{ url: 'https://example.com/product' }] }
@@ -72,5 +74,29 @@ describe('Daily refresh behavior', () => {
     vi.mocked(db.rpc).mockResolvedValue({ data: [], error: null } as any)
     expect(await refreshItem(db, 'id', 'cutoff')).toBe('skipped')
     expect(searchProducts).not.toHaveBeenCalled()
+  })
+})
+
+
+describe('Home Depot background refresh integration',()=>{
+  it('uses the provider only when enabled, preserves MSRP, and applies lease/list guards',async()=>{
+    vi.stubEnv('BRIGHTDATA_HOME_DEPOT_ENABLED','true');vi.stubEnv('BRIGHTDATA_API_KEY','test-only');vi.stubEnv('HOME_DEPOT_ZIPCODE','55437')
+    const depot={...product,list_id:'list',offers:[{url:'https://www.homedepot.com/p/Exact-product/333882212'}]}
+    vi.mocked(db.rpc).mockResolvedValue({data:[depot],error:null} as any)
+    vi.mocked(checkHomeDepot).mockResolvedValue({products:[depot],checked_at:'now',sources:[],summary:''} as any)
+    vi.mocked(scrapeProducts).mockResolvedValue({products:[],checked_at:'now',sources:[],summary:''})
+    expect(await refreshItem(db,'id','cutoff')).toBe('ok')
+    expect(checkHomeDepot).toHaveBeenCalledWith(db,depot,depot.offers[0]!.url)
+    expect(searchProducts).not.toHaveBeenCalled()
+    expect(eq).toHaveBeenCalledWith('list_id','list')
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({msrp_cents:10000}))
+  })
+  it('does not fetch prices after the initiating editor loses access',async()=>{
+    const selectList=vi.fn(()=>({eq:()=>({maybeSingle:async()=>({data:{owner_id:'different'},error:null})})}))
+    const selectMember=vi.fn(()=>({eq:()=>({eq:()=>({maybeSingle:async()=>({data:null,error:null})})})}))
+    const deniedDb={rpc:async()=>({data:[{...product,list_id:'list'}],error:null}),from:(table:string)=>({select:table==='wish_lists'?selectList:selectMember})} as unknown as SupabaseClient
+    expect(await refreshItem(deniedDb,'id','cutoff','former-editor')).toBe('skipped')
+    expect(searchProducts).not.toHaveBeenCalled()
+    expect(checkHomeDepot).not.toHaveBeenCalled()
   })
 })

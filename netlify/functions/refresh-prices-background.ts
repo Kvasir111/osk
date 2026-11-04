@@ -9,13 +9,18 @@ export default async (request: Request) => {
   if (!process.env.PRICE_REFRESH_SECRET || received.length !== expected.length || !timingSafeEqual(received, expected))
     return new Response('Unauthorized', { status: 401 })
   if (request.method !== 'POST') return new Response('Method not allowed', { status: 405 })
-  const parsed = z.object({ ids: z.array(z.string().uuid()).min(1).max(10), cutoff: z.string().datetime() }).safeParse(await request.json())
+  const parsed = z.object({ ids: z.array(z.string().uuid()).min(1).max(2), cutoff: z.string().datetime(), actor_id:z.string().uuid().optional() }).safeParse(await request.json())
   if (!parsed.success) return new Response('Invalid request', { status: 400 })
   const db = adminDatabase()
-  for (const id of parsed.data.ids) {
-    const status = await refreshItem(db, id, parsed.data.cutoff)
+  // At most two five-minute checks fit comfortably in the 15-minute window.
+  // Each item still takes an atomic database lease.
+  let cursor=0
+  await Promise.all(Array.from({length:Math.min(2,parsed.data.ids.length)},async()=>{for(;;){
+    const id=parsed.data.ids[cursor++]
+    if(!id)return
+    const status = await refreshItem(db, id, parsed.data.cutoff,parsed.data.actor_id)
     // IDs and status only: no list content, secrets, or provider responses in logs.
     console.info('Price check', id, status)
-  }
+  }}))
   return new Response(null, { status: 204 })
 }

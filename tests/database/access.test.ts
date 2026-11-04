@@ -27,6 +27,7 @@ beforeAll(async () => {
   await db.exec(await readFile(new URL('../../supabase/secret-santa.sql', import.meta.url), 'utf8'))
   await db.exec(await readFile(new URL('../../supabase/wishlist-usability.sql', import.meta.url), 'utf8'))
   await db.exec(await readFile(new URL('../../supabase/tracking-alerts.sql', import.meta.url), 'utf8'))
+  await db.exec(await readFile(new URL('../../supabase/home-depot-checks.sql', import.meta.url), 'utf8'))
   await db.exec(`insert into auth.users values ('${owner}'),('${editor}'),('${viewer}'),('${outsider}');
     insert into public.wish_lists(id,owner_id,name) values('${list}','${owner}','Christmas');
     insert into public.list_members values('${list}','${editor}','editor'),('${list}','${viewer}','viewer');
@@ -85,7 +86,7 @@ describe('Database isolation with real Postgres RLS', () => {
   })
   it('enables RLS on every application table', async () => {
     const result = await db.query<{ relrowsecurity: boolean }>("select relrowsecurity from pg_class join pg_namespace n on n.oid=relnamespace where n.nspname='public' and relkind='r'")
-    expect(result.rows).toHaveLength(17)
+    expect(result.rows).toHaveLength(19)
     expect(result.rows.every(row => row.relrowsecurity)).toBe(true)
   })
   it('lets owners create with RETURNING, read, update, and delete their lists', async () => {
@@ -516,5 +517,28 @@ describe('Personal target prices and trusted alerts',()=>{
     await db.exec(`insert into wish_lists(id,owner_id,name) values('20000000-0000-0000-0000-000000000009','${owner}','Other')`)
     await db.query(`select * from transfer_wishes('20000000-0000-0000-0000-000000000009','copy',$1)`,[JSON.stringify([{id:item,copy_id:'30000000-0000-0000-0000-000000000009'}])])
     expect((await db.query('select * from price_watches')).rows).toHaveLength(1)
+  })
+})
+
+
+describe('Home Depot free-tier reservations', () => {
+  it('keeps provider snapshots, quota records, and reservation RPC service-only', async () => {
+    for(const role of ['anon','authenticated']) {
+      await asUser(outsider,role)
+      await denied('select * from public.home_depot_usage')
+      await denied('select * from public.home_depot_checks')
+      await denied("select public.reserve_home_depot_check('333882212','55437',3000)")
+    }
+  })
+  it('reserves once per product, ZIP and UTC day and stops at the monthly limit', async () => {
+    await asUser(owner,'service_role')
+    const reserve=async(product:string,zip='55437')=>(await db.query<{job:any}>("select public.reserve_home_depot_check($1,$2,2) as job",[product,zip])).rows[0]!.job
+    const first=await reserve('333882212')
+    expect(first.start).toBe(true)
+    expect((await reserve('333882212')).start).toBe(false)
+    expect((await reserve('333882212','55438')).start).toBe(true)
+    expect(await reserve('333882213')).toBeNull()
+    expect((await db.query('select requests from public.home_depot_usage')).rows).toEqual([{requests:2}])
+    expect((await reserve('333882212')).job.id).toBe(first.job.id)
   })
 })

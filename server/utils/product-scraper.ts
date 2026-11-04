@@ -46,7 +46,7 @@ export function priceCents(value: unknown): number | null {
   const cents = Number(whole) * 100 + Number(fraction.padEnd(2, '0'))
   return Number.isSafeInteger(cents) && cents > 0 && cents <= 100000000 ? cents : null
 }
-function identityMatches(expected: ProductDraft, name: string, variant: string) {
+export function identityMatches(expected: ProductDraft, name: string, variant: string) {
   const tokens = (value: string) => value.toLowerCase().match(/[a-z0-9]+/g) || []
   const actual = new Set(tokens(`${name} ${variant}`))
   const required = tokens(`${expected.name} ${expected.variant}`).filter(word => !['the', 'and', 'with', 'for'].includes(word))

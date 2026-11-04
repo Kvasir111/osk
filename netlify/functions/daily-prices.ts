@@ -14,7 +14,7 @@ export default async () => {
     if (error) throw new Error('Could not read due items')
     if (!data.length) break
     const batches: string[][] = []
-    for (let i = 0; i < data.length; i += 10) batches.push(data.slice(i, i + 10).map(item => item.id))
+    for (let i = 0; i < data.length; i += 2) batches.push(data.slice(i, i + 2).map(item => item.id))
     await Promise.all(batches.map(async ids => {
       const response = await fetch(new URL('/.netlify/functions/refresh-prices-background', site), {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${secret}` },

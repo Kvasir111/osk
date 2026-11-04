@@ -1,6 +1,8 @@
+import { dispatchPriceCheck, queueHomeDepotCheck } from '../utils/background-price-checks'
+import { homeDepotEnabled, homeDepotLink } from '../utils/home-depot'
 import { randomUUID } from 'node:crypto'
 import { z } from 'zod'
-import { createError, defineEventHandler, getRouterParam, readBody, readMultipartFormData, setHeader } from 'h3'
+import { createError, defineEventHandler, getRouterParam, readBody, readMultipartFormData, setResponseStatus, setHeader } from 'h3'
 import { adminDatabase, dbResult, requireUser } from '../utils/database'
 import { searchProducts } from '../utils/product-search'
 import { refreshItem } from '../utils/refresh-prices'
@@ -142,7 +144,10 @@ export default defineEventHandler(async event => {
         if (body.client_id) {
           if (body.search_id || body.checked_at) throw createError({ statusCode: 400, statusMessage: 'Offline additions must be unverified manual wishes.' })
           const item = await createOfflineItem(db, body.client_id, id, normalizePicture(body.product))
-          if (item) await dispatchItemPicture(adminDatabase(), item.id).catch(() => {})
+          if (item) {
+            await dispatchItemPicture(adminDatabase(), item.id).catch(() => {})
+            await queueHomeDepotCheck(adminDatabase(),item,user.id)
+          }
           return item
         }
         const item = dbResult(await writeItem(db,{ ...normalizePicture(body.product), list_id: id,
@@ -159,6 +164,7 @@ export default defineEventHandler(async event => {
           return dbResult(await db.from('wish_items').select('*').eq('id',item.id).single())
         }
         if((item.image_mode||'auto')==='auto'&&!item.image_url)try{await dispatchItemPicture(adminDatabase(),item.id)}catch{console.warn('Optional product picture dispatch unavailable',{id:item.id})}
+        await queueHomeDepotCheck(adminDatabase(),item,user.id)
         return item
       }
       if (action === 'share' && method === 'POST') {
@@ -256,7 +262,7 @@ export default defineEventHandler(async event => {
         return item
       }
       if (method === 'POST' && action === 'refresh') {
-        const item = dbResult(await db.from('wish_items').select('list_id').eq('id', id).maybeSingle())
+        const item = dbResult(await db.from('wish_items').select('*').eq('id', id).maybeSingle())
         if (!item) throw createError({ statusCode: 404, statusMessage: 'Item not found.' })
         const list = dbResult(await db.from('wish_lists').select('owner_id').eq('id', item.list_id).single())
         if (!list) throw createError({ statusCode: 404, statusMessage: 'List not found.' })
@@ -265,6 +271,12 @@ export default defineEventHandler(async event => {
           if (member?.role !== 'editor') throw createError({ statusCode: 403, statusMessage: 'Editing access is required.' })
         }
         await reserve()
+        if(homeDepotEnabled() && homeDepotLink(item)) {
+          try {await dispatchPriceCheck(adminDatabase(),id,user.id)}
+          catch {throw createError({statusCode:503,statusMessage:'Background price check could not start. Your saved prices are kept; try again later.'})}
+          setResponseStatus(event,202)
+          return {status:'background'}
+        }
         const status = await refreshItem(adminDatabase(), id, new Date(Date.now() - 5 * 60000).toISOString())
         return { status }
       }

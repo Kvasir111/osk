@@ -19,7 +19,7 @@ const metrics=computed(()=>Object.fromEntries(Object.keys(healthLabels).map(key=
 const visible=computed(()=>store.items.value.filter(i=>(!listId.value || i.list_id===listId.value) && (health.value==='all' || trackingHealth(i,now.value)===health.value)
   && `${i.name} ${i.variant} ${trackingReason(i)}`.toLowerCase().includes(query.value.trim().toLowerCase())))
 const alertItems=computed(()=>tracking.data.value.alerts.filter(a=>store.items.value.some(i=>i.id===a.item_id && (!i.status||i.status==='active') && i.name===a.name && i.variant===a.variant)))
-const results=ref<Record<string,{state:'queued'|'running'|'ok'|'failed'|'skipped'|'error';message:string}>>({})
+const results=ref<Record<string,{state:'queued'|'running'|'ok'|'failed'|'skipped'|'background'|'error';message:string}>>({})
 const running=computed(()=>Object.values(results.value).some(r=>r.state==='running'||r.state==='queued'))
 const progress=computed(()=>{const values=Object.values(results.value);return {total:values.length,done:values.filter(r=>!['running','queued'].includes(r.state)).length}})
 let generation=0
@@ -53,9 +53,9 @@ async function retry(ids:string[]) {
     if(!navigator.onLine) {results.value[item.id]={state:'error',message:'Offline. This wish has not been retried.'};continue}
     results.value[item.id]={state:'running',message:'Checking saved product pages…'}
     try {
-      const response=await api<{status:'ok'|'failed'|'skipped'}>(`/api/items/${item.id}/refresh`,{method:'POST',accountId:account,timeout:30000})
+      const response=await api<{status:'ok'|'failed'|'skipped'|'background'}>(`/api/items/${item.id}/refresh`,{method:'POST',accountId:account,timeout:30000})
       if(current!==generation || user.value?.id!==account)return
-      results.value[item.id]={state:response.status,message:response.status==='ok'?'Price check finished.':response.status==='failed'?'Check failed; previous prices kept.':'Skipped: checked recently, already running, or paused.'}
+      results.value[item.id]={state:response.status,message:response.status==='background'?'Home Depot check queued. Reload in a few minutes for the result.':response.status==='ok'?'Price check finished.':response.status==='failed'?'Check failed; previous prices kept.':'Skipped: checked recently, already running, or paused.'}
     }catch(e:any){
       if(current!==generation || user.value?.id!==account)return
       const reason=e.data?.statusMessage||e.message||'This check could not finish.'

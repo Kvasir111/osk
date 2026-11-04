@@ -110,3 +110,16 @@ test('demo targets remain local, can be removed, and dashboard filters are keybo
  await page.getByRole('combobox',{name:'Tracking status',exact:true}).selectOption('paused')
  await expect(page.locator('.tracking-row')).toHaveCount(0)
 })
+
+
+test('background price refresh acknowledges queued work without claiming prices finished',async({page})=>{
+ await setup(page)
+ await page.route('**/api/items/*/refresh',route=>route.fulfill({status:202,json:{status:'background'}}))
+ await page.setViewportSize({width:390,height:844})
+ await page.goto('/tracking')
+ await page.getByRole('button',{name:'Select failed checks',exact:true}).click()
+ await page.getByRole('button',{name:'Retry selected checks',exact:true}).click()
+ await expect(page.locator('.tracking-row').first()).toContainText('Home Depot check queued. Reload in a few minutes for the result.')
+ await expect(page.locator('.tracking-row').first()).toContainText('$45')
+ await expect(page.getByRole('button',{name:'Retry selected checks',exact:true})).toBeEnabled()
+})
