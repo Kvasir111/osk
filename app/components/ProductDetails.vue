@@ -4,6 +4,7 @@ import { money, savings } from '../../shared/pricing'
 import { retailerCount } from '../../shared/retailers'
 const props = defineProps<{ item: WishItem; editable?: boolean; demo?: boolean; shareToken?: string }>()
 defineEmits<{ edit: []; remove: []; repair: []; status:['active'|'received'|'archived']; transfer:['move'|'copy'] }>()
+const {user,demo:localDemo}=useAccount()
 const online = useState('offline-online',()=>true)
 const sorted = computed(() => [...props.item.offers].sort((a, b) => a.price_cents - b.price_cents))
 const discount = computed(() => savings(props.item))
@@ -19,6 +20,7 @@ const deleting = ref(false)
     <p v-else class="muted">MSRP hasn’t been verified for this item yet.</p>
     <p v-if="item.checked_at && !demo && retailerCount(item) < 2" class="coverage-warning">Incomplete retailer comparison: {{ retailerCount(item) }} of 2 stores beyond the manufacturer have a verified price for this variant.</p>
     <p v-if="discount" class="savings-note">A little patience pays off. {{ money(discount.cents) }} below MSRP.</p>
+    <TargetPrice v-if="!shareToken && (user || localDemo)" :item="item" />
     <PriceHistory :item="item" :demo="demo" :share-token="shareToken" />
     <PriceCheckStatus :item="item" :demo="demo" />
     <button v-if="editable && !demo && !item.pending_sync" class="secondary-button" @click="$emit('repair')">Fix price tracking</button>

@@ -1,5 +1,5 @@
 import type { User } from '@supabase/supabase-js'
-import type { ProductDraft, WishItem, WishList } from '../../shared/types'
+import type { ProductDraft, WishItem, WishList, PriceTrackingData } from '../../shared/types'
 
 export interface OfflineSnapshot {
   accountId: string
@@ -71,6 +71,7 @@ export async function removeAddition(id: string) {
 export async function clearOfflineAccount(accountId: string) {
   await transaction<void>(['snapshots', 'outbox', 'meta'], 'readwrite', tx => {
     tx.objectStore('snapshots').delete(accountId)
+    tx.objectStore('meta').delete(`price-tracking:${accountId}`)
     tx.objectStore('outbox').index('accountId').openKeyCursor(accountId).onsuccess = event => {
       const cursor = (event.target as IDBRequest<IDBCursor | null>).result
       if (cursor) { tx.objectStore('outbox').delete(cursor.primaryKey); cursor.continue() }
@@ -82,4 +83,14 @@ export async function clearOfflineAccount(accountId: string) {
 }
 export async function withOfflineLock<T>(accountId: string, action: () => Promise<T>): Promise<T> {
   return navigator.locks ? navigator.locks.request(`osk-outbox-${accountId}`, action) : action()
+}
+
+export async function readOfflineTracking(accountId: string) {
+  return transaction<PriceTrackingData | undefined>(['meta'],'readonly',(tx,done)=>{
+    tx.objectStore('meta').get(`price-tracking:${accountId}`).onsuccess=event=>done((event.target as IDBRequest).result)
+  })
+}
+export async function saveOfflineTracking(accountId:string,data:PriceTrackingData) {
+  const plain=JSON.parse(JSON.stringify(data)) as PriceTrackingData
+  await transaction<void>(['meta'],'readwrite',tx=>{tx.objectStore('meta').put(plain,`price-tracking:${accountId}`)})
 }

@@ -57,6 +57,8 @@
 
 - `supabase/wishlist-usability.sql` adds priority, gift preferences, status, and caller-scoped transactional transfers. Moves preserve item IDs/history; copies start with manual offers. Received and archived wishes pause checks and stay out of public share links.
 
+- `supabase/tracking-alerts.sql` adds personal targets and in-app alerts. Keep target/alert reads account-scoped and dependent on current list access. Only successful service-role observations may notify; manual writes, failed checks, and copied prices must never alert.
+
 ## Offline and PWA behavior
 
 - Keep cached data and queued additions scoped to the authenticated account. Do not copy auth tokens into IndexedDB or show/sync one account's drafts under another account.

@@ -109,3 +109,33 @@ export interface ProductSearchJob {
   updated_at: string
   finished_at: string | null
 }
+
+export interface PriceWatch {
+  id: string
+  user_id: string
+  item_id: string
+  target_cents: number
+  is_met: boolean
+  last_price_cents: number | null
+  last_checked_at: string | null
+  created_at: string
+  updated_at: string
+}
+export interface PriceAlert {
+  id: string
+  watch_id: string
+  user_id: string
+  item_id: string
+  name: string
+  variant: string
+  price_cents: number
+  target_cents: number
+  offer: Offer
+  observed_at: string
+  read_at: string | null
+}
+export interface PriceTrackingData {
+  watches: PriceWatch[]
+  alerts: PriceAlert[]
+  unread_count: number
+}

@@ -10,6 +10,7 @@ import { prepareAvatar, profileForUser } from '../utils/profiles'
 
 import { familyRequest } from '../utils/families'
 import { santaRequest } from '../utils/santa'
+import { priceTracking } from '../utils/price-tracking'
 import { itemHistory } from '../utils/history'
 import { writeItem } from '../utils/item-write'
 import { normalizePicture } from '../../shared/product-images'
@@ -50,6 +51,14 @@ export default defineEventHandler(async event => {
       return { list, items }
     }
     const { db, user } = await requireUser(event)
+    if (resource === 'tracking' && path.length===1 && method==='GET') return await priceTracking(db,user.id)
+    if (resource === 'price-alerts' && id==='read' && path.length===2 && method==='PATCH') {
+      const input=z.object({id:uuid.optional()}).strict().parse(await readBody(event))
+      let update=db.from('price_alerts').update({read_at:new Date().toISOString()}).eq('user_id',user.id).is('read_at',null)
+      if(input.id) update=update.eq('id',input.id)
+      dbResult(await update)
+      return {ok:true}
+    }
     if (resource === 'research-config' && path.length === 1 && method === 'GET') return { ai_enabled: aiResearchEnabled() }
     if (resource === 'santa') return await santaRequest(event, path, db, user)
     if (resource === 'account-invitations') return await accountInvitationRequest(event, path, user)
@@ -206,6 +215,18 @@ export default defineEventHandler(async event => {
     }
     if (resource === 'items' && id) {
       uuid.parse(id)
+      if (action==='target' && path.length===3) {
+        if(method==='POST') {
+          const input=z.object({target_cents:z.number().int().min(1).max(100000000)}).strict().parse(await readBody(event))
+          const result=dbResult(await db.rpc('set_price_target',{target_item:id,price:input.target_cents}))
+          if(!result?.[0]) throw createError({statusCode:403,statusMessage:'This wish is unavailable or paused.'})
+          return result[0]
+        }
+        if(method==='DELETE') {
+          dbResult(await db.from('price_watches').delete().eq('item_id',id).eq('user_id',user.id))
+          return {ok:true}
+        }
+      }
       if (method === 'GET' && action === 'history' && path.length === 3) {
         const item = dbResult(await db.from('wish_items').select('id,name,variant').eq('id', id).maybeSingle())
         if (!item) throw createError({ statusCode: 404, statusMessage: 'Item not found.' })

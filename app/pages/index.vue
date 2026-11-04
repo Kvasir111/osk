@@ -5,6 +5,7 @@ import { money, savings, bestOffer } from '../../shared/pricing'
 const { user, demo, api, signOut } = useAccount()
 const { displayName, avatarUrl, loadProfile } = useProfile()
 const store = useWishlists()
+const priceTracking = usePriceTracking()
 const { lists, items, active, activeId, activeItems, canEdit, isOwner, loaded } = store
 const modal = ref<'list' | 'edit-list' | 'manual' | 'edit-item' | 'quick' | 'transfer' | 'repair' | 'detail' | 'search' | 'share' | null>(null)
 const selected = ref<WishItem>()
@@ -115,6 +116,7 @@ const occasionIcon = (occasion: string) => occasion === 'everyday' ? 'heart' : '
       <div class="nav-section-title">YOUR COLLECTION <button class="icon-button" aria-label="Create a wishlist" @click="openList()"><WishIcon name="plus" :size="17" /></button></div>
       <nav aria-label="Wishlists"><button v-for="list in lists" :key="list.id" class="list-nav" :class="{ active: activeId === list.id }" @click="activeId = list.id"><WishIcon :name="occasionIcon(list.occasion)" :size="18" /><span>{{ list.name }}</span><span class="list-count">{{ items.filter(i => i.list_id === list.id && (!i.status || i.status === 'active')).length }}</span></button></nav>
       <button class="new-list-button" @click="openList()"><WishIcon name="plus" :size="17" />Make a new list</button>
+      <NuxtLink to="/tracking" class="new-list-button"><WishIcon name="trend" :size="17" />Tracking &amp; alerts<span v-if="priceTracking.unread.value" class="list-count">{{ priceTracking.unread.value }}</span></NuxtLink>
       <NuxtLink to="/family" class="new-list-button"><WishIcon name="user" :size="17" />Family hub</NuxtLink>
       <NuxtLink to="/invitations" class="new-list-button"><WishIcon name="plus" :size="17" />Invite people</NuxtLink>
       <NuxtLink to="/capture" class="new-list-button"><WishIcon name="link" :size="17" />Quick capture</NuxtLink>

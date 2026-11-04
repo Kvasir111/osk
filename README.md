@@ -26,7 +26,7 @@ Uploads accept JPG, PNG, and WebP up to 3 MB and 20 megapixels. The server decod
 
 ## Run locally
 
-Use Node 24 (see `.nvmrc`) and pnpm 10.33.0 (pinned in `package.json`).
+Use Node 24 (see `.nvmrc`) and the pnpm version pinned in `package.json`.
 
 ```sh
 pnpm install --frozen-lockfile
@@ -39,7 +39,7 @@ Without Supabase configuration, the app runs an explicitly labeled local demo. S
 ## Connect the new Supabase project
 
 1. Use a **dedicated project**, separate from the drinks app.
-2. Run [`supabase/schema.sql`](supabase/schema.sql), then [`supabase/features.sql`](supabase/features.sql), [`supabase/search-jobs.sql`](supabase/search-jobs.sql), [`supabase/item-pictures.sql`](supabase/item-pictures.sql), [`supabase/account-invitations.sql`](supabase/account-invitations.sql), and [`supabase/secret-santa.sql`](supabase/secret-santa.sql), and [`supabase/wishlist-usability.sql`](supabase/wishlist-usability.sql), each **once**, in its SQL Editor. Together they create the tables, RLS policies, grants, and service-only transaction/budget/lease functions. These files are setup SQL, not proof of a live migration. Keep future changes in reviewed migrations; do not rerun the bootstrap on existing tables.
+2. Run [`supabase/schema.sql`](supabase/schema.sql), then [`supabase/features.sql`](supabase/features.sql), [`supabase/search-jobs.sql`](supabase/search-jobs.sql), [`supabase/item-pictures.sql`](supabase/item-pictures.sql), [`supabase/account-invitations.sql`](supabase/account-invitations.sql), and [`supabase/secret-santa.sql`](supabase/secret-santa.sql), [`supabase/wishlist-usability.sql`](supabase/wishlist-usability.sql), and [`supabase/tracking-alerts.sql`](supabase/tracking-alerts.sql), each **once**, in its SQL Editor. Together they create the tables, RLS policies, grants, and service-only transaction/budget/lease functions. These files are setup SQL, not proof of a live migration. Keep future changes in reviewed migrations; do not rerun the bootstrap on existing tables.
 3. In the project's Connect/API settings, get the project URL and publishable key. Put them in `.env` as `NUXT_PUBLIC_SUPABASE_URL` and `NUXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
 4. Add the **server-only** service-role key as `SUPABASE_SERVICE_ROLE_KEY`. It supports token-based shared views, account invitations, and daily workers. It never goes into public runtime config.
 5. Configure Supabase Auth:
@@ -254,3 +254,15 @@ For an existing project, run **only** [`supabase/wishlist-usability.sql`](supaba
 - **Received/archive:** keep previous wishes and history, hide them from active/public wishlists, and pause daily checks. Use the status filter to find and restore them.
 
 Search/filtering and new manual wishes work offline from the account’s cache, including gift preferences and priority. Editing, status changes, moving, and copying saved wishes require syncing and reconnecting. Copying or moving changes who can read the wish according to the destination list’s access; account and family permissions themselves do not change.
+
+## Tracking dashboard and personal price alerts
+
+For an existing project already on the wishlist usability upgrade, run **only** [`supabase/tracking-alerts.sql`](supabase/tracking-alerts.sql) once in the SQL Editor before deploying. It adds private price watches and alert records, with RLS and narrow column grants. Existing saved prices do not generate notifications during setup. No new keys, paid APIs, SMTP, or browser notification permissions are needed.
+
+Open **Tracking & alerts** in the wishlist sidebar. The dashboard groups accessible wishes into fresh (within 36 hours), stale, failed, not checked, missing links, paused, and waiting to sync. Filter by list, status, or text, inspect the most recent failure and retained price, or correct the exact listing through **Fix tracking** / **Edit links & price**. Select up to ten editable wishes and retry sequentially; every request rechecks editing access and uses the existing 20-per-account daily lookup allowance. A sign-in error or exhausted allowance stops remaining requests with an individual explanation. Keep the dashboard open while the browser queue runs. Daily Netlify checks continue independently.
+
+Open any synced, active wish’s **Details & target** to set a personal USD target, including wishes shared with view access. Targets are separate from MSRP and current offers. They are not copied to another list, shown to other list members, or exposed by public sharing links. Removing a target deletes its notifications. Targets and alerts can be viewed from the authenticated account’s offline cache; changing targets, marking alerts read, and retrying checks require a connection. Signout clears that account’s tracking cache along with its other local data.
+
+A successful **service-role** price observation creates an alert when its lowest recorded offer is at or below the target. The first such check after setting or changing a target may alert, even if it was already inexpensive when the target was set. Repeated below-target checks do not repeat the notification; a verified rise above the target rearms it for a later drop. Same-value target retries do not rearm it. Manual/browser price writes, copied offers, failed checks, image-only edits, received wishes, and archived wishes never generate alerts. Only current list/family access qualifies for delivery and reads; moves and revoked access are checked again. Old-variant notifications are hidden after a product identity correction.
+
+Alerts show the observed time, retailer link, target and listed price, shipping/stock qualifications, and saved discount conditions. Listed prices exclude tax and shipping and may have store eligibility conditions; an alert is not a checkout guarantee. The newest 100 notifications appear with read/unread state and **Mark all as read**. An unread reminder refreshes on startup, reconnect, return to a visible app, and approximately every minute while visible. In-app alerts appear on the next online visit; this does not send email, push notifications, or promise closed-app mobile background sync. Demo targets remain local and cannot create real notifications.

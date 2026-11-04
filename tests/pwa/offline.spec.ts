@@ -13,6 +13,7 @@ async function setup(page:Page){
  const items:any[]=[]
  const posts:{account:string;id:string}[]=[]
  const transfers:any[]=[]
+ const tracking={watches:[] as any[],alerts:[] as any[],writes:[] as string[]}
  const state={dropTransferResponse:false,dropResponse:false,reject:false,unauthorized:false,delayReads:false,releaseReads:[] as Array<() => void>}
  await page.addInitScript(value=>{
   if(!sessionStorage.getItem('qa-seeded')){localStorage.setItem('sb-qa-auth-token',JSON.stringify(value));sessionStorage.setItem('qa-seeded','1')}
@@ -22,6 +23,12 @@ async function setup(page:Page){
   const request=route.request(),path=new URL(request.url()).pathname
   const bearer=request.headers()['authorization']?.split('.')[1]
   const account=bearer?JSON.parse(Buffer.from(bearer,'base64url').toString()).sub:null
+  if(path==='/api/tracking')return route.fulfill({json:{watches:tracking.watches.filter(w=>w.user_id===account),alerts:tracking.alerts.filter(a=>a.user_id===account),unread_count:tracking.alerts.filter(a=>a.user_id===account&&!a.read_at).length}})
+  if(path==='/api/price-alerts/read'){
+   tracking.writes.push(account);const input=request.postDataJSON()
+   for(const alert of tracking.alerts)if(alert.user_id===account&&(!input.id||input.id===alert.id))alert.read_at=new Date().toISOString()
+   return route.fulfill({json:{ok:true}})
+  }
   if(path==='/api/profile')return route.fulfill({json:{display_name:'QA',avatar_url:null,email:'owner@example.com'}})
   if(path==='/api/searches')return route.fulfill({json:[]})
   if(path==='/api/lists'&&request.method()==='GET')return route.fulfill({json:{lists:lists.filter(l=>l.owner_id===account),memberships:[],user_id:account}})
@@ -63,7 +70,7 @@ async function setup(page:Page){
  await page.waitForFunction(()=>new Promise(resolve=>{
   const r=indexedDB.open('osk-offline-v1',1);r.onsuccess=()=>{const db=r.result;const q=db.transaction('snapshots').objectStore('snapshots').get('10000000-0000-4000-8000-000000000001');q.onsuccess=()=>{resolve(!!q.result);db.close()}}
  }))
- return {lists,items,posts,transfers,state}
+ return {lists,items,posts,transfers,state,tracking}
 }
 async function addWish(page:Page,name:string){
  await page.getByRole('button',{name:'Add a wish',exact:true}).click()
@@ -359,4 +366,39 @@ test('duplicate-copy approval reuses its ID after a lost response and keeps the 
  expect(data.transfers[0].items).toEqual(data.transfers[1].items)
  expect(data.items.filter(i=>i.list_id===destination)).toHaveLength(1)
  await expect(page.locator('.product-card')).toContainText('A northern mug')
+})
+
+
+test('personal targets and alerts reload offline without allowing writes, and never follow another account',async({page,context})=>{
+ const data=await setup(page),now=new Date().toISOString()
+ const itemId='30000000-0000-4000-8000-000000000099'
+ const offer={retailer:'Bookshop',url:'https://shop.example.com/private-book',price_cents:2000,seller_type:'retailer',us_shipping:'unknown',availability:'unknown',shipping_note:'Shipping extra'}
+ data.items.push({id:itemId,list_id:listId,name:'My private target book',variant:'Hardcover',category:'Books',notes:'',msrp_cents:null,msrp_source_url:null,offers:[offer],created_at:now,checked_at:now,last_attempt_at:now,refresh_status:'ok'})
+ data.tracking.watches.push({id:'private-watch',user_id:owner,item_id:itemId,target_cents:2500,is_met:true,last_price_cents:2000,last_checked_at:now,created_at:now,updated_at:now})
+ data.tracking.alerts.push({id:'private-alert',watch_id:'private-watch',user_id:owner,item_id:itemId,name:'My private target book',variant:'Hardcover',price_cents:2000,target_cents:2500,offer,observed_at:now,read_at:null})
+ await page.reload()
+ await expect(page.getByRole('link',{name:'Open price alerts',exact:true})).toContainText('1 price alert')
+ await page.waitForFunction(()=>new Promise(resolve=>{
+  const request=indexedDB.open('osk-offline-v1',1);request.onsuccess=()=>{const db=request.result;const query=db.transaction('meta').objectStore('meta').get('price-tracking:10000000-0000-4000-8000-000000000001');query.onsuccess=()=>{resolve(query.result?.alerts?.length===1);db.close()}}
+ }))
+ await context.setOffline(true)
+ await page.goto('/tracking?tab=alerts')
+ await expect(page.locator('.price-alert-row')).toContainText('My private target book')
+ await expect(page.getByRole('button',{name:'Mark as read',exact:true})).toBeDisabled()
+ await page.getByRole('button',{name:'View wish',exact:true}).click()
+ await expect(page.getByLabel('Target price in USD',{exact:true})).toHaveValue('25')
+ await expect(page.getByLabel('Target price in USD',{exact:true})).toBeDisabled()
+ await page.keyboard.press('Escape')
+ await context.setOffline(false)
+ await expect(page.getByRole('button',{name:'Mark as read',exact:true})).toBeEnabled()
+ await page.getByRole('button',{name:'Mark as read',exact:true}).click()
+ expect(data.tracking.writes).toEqual([owner])
+ data.lists.push({id:'other-list',owner_id:other,name:'Other account wishes',description:'',occasion:'everyday',created_at:now,share_token:null})
+ await page.evaluate(value=>localStorage.setItem('sb-qa-auth-token',JSON.stringify(value)),session(other))
+ await page.reload()
+ await expect(page.locator('.price-alert-row')).toHaveCount(0)
+ await expect(page.getByRole('link',{name:'Open price alerts',exact:true})).toHaveCount(0)
+ await page.getByRole('button',{name:'Tracking dashboard',exact:true}).click()
+ await expect(page.getByText('My private target book',{exact:true})).toHaveCount(0)
+ expect(data.tracking.writes).toEqual([owner])
 })
